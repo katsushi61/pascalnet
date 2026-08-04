@@ -1,0 +1,76 @@
+<!--
+  App: hello-world-blink
+  Created: 2026-08-02
+  Description: ボタンを押すと「Hello World」の文字を点滅させるシンプルなサンプルアプリ。
+-->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hello World Blink</title>
+<script>const CONFIG = { apiBase: "", basePath: "" };</script>
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    margin: 0;
+    background: #111;
+    font-family: sans-serif;
+  }
+  h1 {
+    font-size: 3rem;
+    color: #0f0;
+    text-align: center;
+    margin: 0 16px;
+  }
+  h1.blink {
+    animation: blink 0.5s step-start infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  button {
+    margin-top: 30px;
+    padding: 12px 24px;
+    font-size: 1.2rem;
+    border: none;
+    border-radius: 8px;
+    background: #0f0;
+    color: #000;
+    cursor: pointer;
+  }
+  button:active {
+    transform: scale(0.97);
+  }
+  @media (max-width: 600px) {
+    h1 {
+      font-size: 2rem;
+    }
+    button {
+      width: 80%;
+      padding: 14px 0;
+    }
+  }
+</style>
+</head>
+<body>
+  <h1 id="text">Hello World</h1>
+  <button id="btn">点滅させる</button>
+
+  <script>
+    const text = document.getElementById('text');
+    const btn = document.getElementById('btn');
+    let blinking = false;
+
+    btn.addEventListener('click', () => {
+      blinking = !blinking;
+      text.classList.toggle('blink', blinking);
+      btn.textContent = blinking ? '止める' : '点滅させる';
+    });
+  </script>
+</body>
+</html>
