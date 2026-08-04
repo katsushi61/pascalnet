@@ -1,0 +1,8 @@
+DirectoryIndex index.php index.html
+
+RewriteEngine On
+RewriteRule ^apps/([a-z0-9-]+)/?$ gate.php?app=$1 [L,QSA]
+
+<FilesMatch "\.(sql|example)$">
+  Require all denied
+</FilesMatch>
