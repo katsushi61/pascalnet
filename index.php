@@ -1,9 +1,7 @@
 <?php
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/apps_lib.php';
-
 $user = require_login();
-
 $apps = list_all_apps();
 ?>
 <!DOCTYPE html>
@@ -11,11 +9,15 @@ $apps = list_all_apps();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>venonet - アプリ一覧</title>
+<title>PascalNet - アプリ一覧</title>
 <style>
   body { margin:0; min-height:100vh; background:#F7F6F3; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Segoe UI",sans-serif; color:#1E2430; }
   header { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:#fff; border-bottom:1px solid #E4E1DA; flex-wrap:wrap; gap:8px; }
-  header h1 { font-size:18px; margin:0; }
+  header h1 { font-size:18px; margin:0; display:flex; align-items:center; gap:10px; }
+  .brand-icon { width:32px; height:32px; border-radius:8px; display:block; }
+  .brand-name { font-weight:700; letter-spacing:-0.01em; }
+  .brand-blue { color:#0553B3; }
+  .brand-green { color:#4EBB3E; }
   .user-area { display:flex; align-items:center; gap:12px; font-size:13px; color:#5B6472; }
   .user-area a { color:#764ba2; text-decoration:none; }
   .user-area a:hover { text-decoration:underline; }
@@ -35,7 +37,10 @@ $apps = list_all_apps();
 </head>
 <body>
   <header>
-    <h1>venonet</h1>
+    <h1>
+      <img src="/apps/pascalnet-icon.png" alt="PascalNet" class="brand-icon">
+      <span class="brand-name"><span class="brand-blue">Pascal</span><span class="brand-green">Net</span></span>
+    </h1>
     <div class="user-area">
       <span><?= htmlspecialchars($user['display_name'], ENT_QUOTES, 'UTF-8') ?></span>
       <?php if ($user['is_admin']): ?>
