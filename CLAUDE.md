@@ -1,135 +1,186 @@
-# アプリ作成・デプロイ規約
+# CLAUDE.md
 
-このプロジェクトでHTMLアプリを作成・デプロイする際、Claudeは以下のルールに従うこと。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 1. アプリ作成ルール
+## What this repo is
 
- saveState/loadStateが使うlocalStorageのキーは、必ず
- `<app-name>:キー名` の形式にすること(例: expense-tracker:records)。
- 他のアプリのキーと衝突しない名前空間を必ず使う。
+**PascalNet** (repo name `venonet-app`, host `app.venonet.jp`) is a tiny PHP app
+portal: a thin PHP auth/routing shell serves a directory of independent,
+single-file HTML/JS apps under `apps/`. There is no build system, package
+manager, or test suite — PHP files run as-is and each app is a static HTML
+file opened directly in the browser or served through the auth gate.
 
-- 出力は単一のHTMLファイル(CSS/JSはすべてインライン埋め込み)。
-- 外部リソースは cdnjs.cloudflare.com からのみ読み込む。
-- `window.storage` や `sendPrompt()` などClaudeアーティファクト専用APIは
-  使用しない。永続化が必要な場合は `saveState(data)` / `loadState()` を
-  自作し、中身はlocalStorageベースで実装する。
-- ファイル冒頭に設定ブロックを必ず置く:
-```html
+## Commands
+
+There is no build/lint/test tooling in this repo (no `package.json`,
+composer, or CI config). Workflow is:
+
+- **Local check of an app**: open `apps/<app-name>/index.html` directly in a
+  browser to verify it works standalone (no server required for the app
+  itself).
+- **Local check of the PHP shell**: run `php -S localhost:8000` from the repo
+  root (requires a `config.local.php`, see below) and browse
+  `http://localhost:8000/`.
+- **Deploy**: `git push` to `main`. A webhook on the `app.venonet.jp` server
+  (WADAX) auto-pulls and deploys within seconds — there is no separate
+  build/deploy command. See "Branch & deploy rules" below.
+
+## Architecture
+
+### Two layers that don't mix
+
+1. **Auth/portal shell** (PHP, repo root) — `index.php`, `login.php`,
+   `logout.php`, `admin.php`, `setup.php`, `gate.php`, `auth.php`, `db.php`,
+   `apps_lib.php`, `.htaccess`, `schema.sql`, `config.local.php.example`.
+   This is infrastructure, not an "app" — it's exempt from the one-app-one-file
+   rule below and should rarely need changes when just adding/updating apps.
+2. **Apps** (`apps/<app-name>/index.html`) — self-contained single-file HTML
+   apps with inline CSS/JS. Each is independent; they never reference each
+   other or share server-side code. Persistence is client-side only
+   (`localStorage` via app-specific `saveState`/`loadState` helpers), since
+   there is no per-app backend.
+
+### Request flow for an app
+
+`app.venonet.jp/apps/<app-name>/` → Apache `.htaccess` rewrite
+(`^apps/([a-z0-9-]+)/?$` → `gate.php?app=$1`) → `gate.php` validates the slug,
+calls `require_login()` from `auth.php`, then `readfile()`s
+`apps/<app-name>/index.html` and streams it out. `apps/.htaccess` separately
+denies **direct** `.html` access (`Require all denied`), so an app's HTML can
+only ever be reached through `gate.php`'s login check — there is no way to
+view an app's source without authenticating first.
+
+### Portal listing (`index.php` + `apps_lib.php`)
+
+`index.php` calls `list_all_apps()`, which globs `apps/*/index.html`, and for
+each file whose parent directory name matches `^[a-z0-9-]+$`, parses the
+leading `<!-- App: ... Created: ... Description: ... -->` HTML comment (see
+app-file header format below) to build the card grid. An app with a
+malformed slug or missing/malformed header comment is silently skipped or
+shown with fallback title — so the header comment format is load-bearing,
+not decorative.
+
+### Auth layer (`auth.php`, `db.php`, `schema.sql`)
+
+Single flat `users` table (`id`, `username`, `password_hash`, `display_name`,
+`is_admin`). No per-app permissions model: any logged-in user can reach every
+app in `apps/`. Sessions are PHP native sessions with `httponly`/`SameSite=Lax`
+cookies; `csrf_token()`/`csrf_verify()` guard the one state-changing form
+(`admin.php`'s add-user action). `setup.php` is a one-time bootstrap that
+only works while the `users` table is empty (creates the first admin, then
+403s on subsequent visits). `db.php` reads DB credentials from
+`config.local.php` (gitignored, copy from `config.local.php.example` and
+deploy it directly on the server — never commit it).
+
+## App authoring & deployment conventions
+
+These rules govern any work that creates or updates a file under `apps/`.
+They are strict because a `git push` to `main` deploys to production within
+seconds (see "Branch & deploy rules") — there is no staging environment.
+
+### 1. Building an app
+
+- Output is a **single HTML file** with all CSS/JS inlined. Do not split into
+  multiple files.
+- External resources may be loaded **only** from `cdnjs.cloudflare.com`.
+- Never use Claude-artifact-only APIs (`window.storage`, `sendPrompt()`,
+  etc.) — this is a plain static file served to a real browser, not an
+  artifact sandbox. For persistence, implement your own `saveState(data)` /
+  `loadState()` backed by `localStorage`.
+- **`localStorage` keys must be namespaced** `<app-name>:key-name` (e.g.
+  `expense-tracker:records`) so apps never collide with each other's storage.
+- File must start with a config block:
+  ```html
   <script>const CONFIG = { apiBase: "", basePath: "" };</script>
-```
-- ファイル先頭にHTMLコメントでアプリ名・作成日・簡単な説明を、必ず以下の
-  キー形式で記載する(ポータルページ `index.php` がこの形式をパースして
-  アプリ一覧に表示するため)。`Description:` は複数行に折り返してもよい。
-```html
-<!--
-  App: <app-name>
-  Created: YYYY-MM-DD
-  Description: 簡単な説明文。
--->
-```
-- アプリ名(=ディレクトリ名として使う)は、必ず英数字とハイフンのみの
-  kebab-case(例: `expense-tracker`)にする。日本語・空白・大文字は
-  使わない。
-- ビルドステップを前提にせず、ブラウザでそのまま開いて動作する
-  状態を完成とする。
+  ```
+- File must start with a metadata comment in this exact key format (parsed by
+  `apps_lib.php::extract_app_meta()` for the portal listing —
+  `Description:` may wrap across multiple lines):
+  ```html
+  <!--
+    App: <app-name>
+    Created: YYYY-MM-DD
+    Description: 簡単な説明文。
+  -->
+  ```
+- The app name (used as the directory name) must be **kebab-case**
+  (lowercase alphanumeric + hyphens only) — no Japanese, spaces, or
+  uppercase. `apps_lib.php` filters out any directory that doesn't match
+  `^[a-z0-9-]+$`.
+- No build step: the file must work as-is when opened in a browser.
 
-## 2. リポジトリ内の配置ルール
+### 2. File placement
 
-- 各アプリは以下のパスに配置する:
+- Path is always `apps/<app-name>/index.html` — **the filename must be
+  `index.html`**, never `<app-name>.html`. (Apache serves
+  `apps/<app-name>/` by folder name; without `index.html` present it 403s.)
+- One app = one file. Don't add sibling files to an app's directory.
+- Public URL after deploy: `app.venonet.jp/apps/<app-name>/`.
+- **Before creating a new app, check `apps/` for an existing directory with
+  the same name.** If one exists, read its header comment (App/Created/
+  Description) and compare it against the current request:
+  - Same purpose → treat as an update, overwrite freely.
+  - Different purpose → do **not** silently overwrite; ask the user how to
+    proceed (e.g. "`<app-name>` is already used for a different app (...).
+    How would you like to proceed?").
 
-例: `expense-tracker` というアプリなら `apps/expense-tracker/index.html`
-- **ファイル名は必ず `index.html` にする。** `<app-name>.html` のような
-  名前にしてはいけない。理由: サーバー(Apache)は
-  `app.venonet.jp/apps/<app-name>/` のようにフォルダ名だけでアクセスされた
-  時、`index.html` が無いと403 Forbiddenを返すため。
-- 1アプリ = 1ファイル。同じディレクトリに補助ファイルを増やさない
-  (単一HTMLファイル完結の原則を守る)。
-- 公開後のURLは `app.venonet.jp/apps/<app-name>/` になる想定
-  (フォルダ名だけでアクセス可能)。
-- **新しいアプリを作る前に、必ず `apps/` 配下に同名のディレクトリが
-  既に存在しないか確認する**(例: `ls apps/`)。存在する場合は、以下の
-  手順で「既存アプリの更新」か「名前が偶然かぶった別アプリ」かを判断する。
-  1. 既存の `apps/<app-name>/index.html` 冒頭のHTMLコメント(アプリ名・
-     作成日・説明)を読む。
-  2. 今回の依頼内容と、その説明文が同じ目的・同じ機能を指しているかを
-     比較する。
-  3. 同じ目的だと判断できれば、既存アプリの更新として上書きしてよい。
-  4. 目的が明らかに異なる場合は、無自覚に上書きせず、ユーザーに
-     「`<app-name>` という名前は既に別の用途(◯◯)で使われています。
-     どうしますか?」のように確認してから進める。
+### 3. Branch & deploy rules (fully automatic)
 
-## 3. ブランチ・デプロイルール(完全自動)
+- The server only watches `main`. There are no per-app branches — always
+  work directly on `main` for app changes (commit and push straight to
+  `main`).
+- A GitHub webhook on `main` triggers an immediate auto pull+deploy on the
+  WADAX server — no manual "pull now"/"deploy now" step exists or is needed.
+  A push is live on `app.venonet.jp` within seconds to tens of seconds.
+- Because push == near-instant production release, **all verification must
+  happen before pushing** (see self-check list below).
+- Commit messages: concise Japanese, describing what changed (e.g. `add:
+  expense-tracker 初版`, `fix: 合計計算のバグ修正`).
+- After pushing, tell the user only: "pushしました。数十秒後に
+  `app.venonet.jp/apps/<app-name>/` で確認できます。" Don't tell them to open
+  WADAX/GitHub admin screens.
 
-- サーバー(WADAX)側は `main` ブランチのみを監視し、`/app.venonet.jp`
-  に自動プルする設定になっている。アプリごとの専用ブランチは使わず、
-  常に `main` ブランチで作業・commit・pushする。
-- **GitHubリポジトリにWebhookが設定済みであり、`main` ブランチへの
-  push は即座にWADAX側へ通知され、自動的にpull + デプロイまで完了する。**
-  手動で「今すぐプル」「今すぐデプロイ」ボタンを押す必要はない。
-  Claudeがpushした時点で、数秒〜数十秒後には
-  `app.venonet.jp` に反映される。
-- したがって、pushする前の動作確認が特に重要になる
-  (push = ほぼ即座に本番公開されるため)。第4節のセルフチェックを
-  必ず通してからpushすること。
-- コミットメッセージは日本語で簡潔に、変更内容が分かるように書く
-  (例: `add: expense-tracker 初版`, `fix: 合計計算のバグ修正`)。
-- pushが完了したら、ユーザーには「pushしました。数十秒後に
-  `app.venonet.jp/apps/<app-name>/` で確認できます」とだけ伝える。
-  WADAXやGitHubの管理画面を開くよう案内する必要はない。
+### 4. Pre-deploy self-check
 
-## 4. デプロイ前セルフチェック
+Run through this before every push, since push is effectively instant
+production release with no other safety net:
 
-pushする前に、以下を自己チェックしてから実行すること。push後はすぐ
-本番に反映されるため、ここでの確認が唯一の安全弁になる。
+- [ ] File path is `apps/<app-name>/index.html` (filename is exactly
+      `index.html`)
+- [ ] `<app-name>` is kebab-case (alphanumeric + hyphens only)
+- [ ] No external resources loaded from anywhere other than a CDN
+- [ ] No forbidden APIs (`window.storage`, `sendPrompt()`, etc.)
+- [ ] Opens and works standalone in a browser (as far as can be verified)
+- [ ] Layout holds up at mobile width (use `@media (max-width: 600px)` etc.)
+- [ ] Matches the folder-only access pattern
+      `app.venonet.jp/apps/<app-name>/`
 
-- [ ] ファイルパスが `apps/<app-name>/index.html` になっているか
-      (ファイル名が `index.html` であることを必ず確認)
-- [ ] `<app-name>` がkebab-case(英数字とハイフンのみ)になっているか
-- [ ] CDN以外の外部リソースを読み込んでいないか
-- [ ] `window.storage` / `sendPrompt()` など使用禁止APIが含まれていないか
-- [ ] ブラウザでそのまま開いて単体動作するか(可能な範囲で)
-- [ ] スマートフォンの画面幅でもレイアウトが崩れないか
-      (`@media (max-width: 600px)` 等でモバイル対応を入れる)
-- [ ] 完成後のURL `app.venonet.jp/apps/<app-name>/` でアクセスできる
-      想定の構成になっているか(フォルダ名だけでアクセスして表示される)
+### 5. Login/auth layer
 
-## 5. ログイン認証レイヤーについて
+`app.venonet.jp` has required login since 2026-07-29. There is no per-app
+permission system by design — any authenticated user can use every app.
 
-`app.venonet.jp` は2026-07-29以降、ログイン必須になっている。未ログインで
-`apps/<app-name>/` にアクセスするとログイン画面にリダイレクトされる。
-アプリ単位の利用権限という概念は無く、**ログインできるユーザーは全アプリを
-利用できる**(誰がどのアプリを使えるかを個別に管理する仕組みはあえて作って
-いない)。
+- The auth-infrastructure files listed under "Two layers that don't mix"
+  above are exempt from the one-app-one-file rule; don't add to or modify
+  them when just creating/updating an app.
+- Once a new app is pushed and deployed, every existing logged-in user can
+  use it immediately — no extra permission step. After pushing, just give
+  the user the same one-line status message as in section 3.
+- Adding login accounts (who can log in at all) is done by an admin via
+  `app.venonet.jp/admin.php`, not something apps or Claude need to handle.
+- Anyone with write access to this repo can open it in Claude Code and
+  ship an app following these rules — this isn't Claude-specific tooling.
+- DB credentials live only in `config.local.php` (gitignored, deployed
+  directly on the server). Never commit its contents or paste plaintext
+  passwords into chat.
 
-- ルート直下の `index.php` `login.php` `logout.php` `admin.php` `setup.php`
-  `gate.php` `auth.php` `db.php` `apps_lib.php` `.htaccess` `apps/.htaccess`
-  `schema.sql` `config.local.php.example` は認証基盤のファイルであり、
-  「1アプリ1ファイル」規約の対象外。個別アプリ作成時にこれらを増やしたり
-  変更したりしない。
-- アプリ本体の作り方(単一HTMLファイル・配置パス・kebab-case命名など)は
-  第1〜4節のルールのまま変更なし。
-- 新しいアプリをpushして本番に反映されれば、その時点で既存の全ログイン
-  ユーザーがそのまま利用できる。追加の権限付与作業は不要。新しいアプリを
-  pushした後は、ユーザーに「pushしました。数十秒後に
-  `app.venonet.jp/apps/<app-name>/` で確認できます」とだけ伝えればよい
-  (第3節と同じ)。
-- ログインアカウント自体の追加(誰がログインできるか)は
-  `app.venonet.jp/admin.php` から管理者が行う。
-- venonet-appリポジトリへのwrite権限を持つ人は誰でも、Claude Codeで
-  このリポジトリを開いて第1〜4節のルールに沿ってアプリを作りmainにpush
-  できる(Claudeに限らず、リポジトリのコラボレーターなら誰でも同じ手順)。
-- DB接続情報は `config.local.php`(gitignore対象・サーバー上に直接配置)に
-  分離されている。このファイルの中身をコミットしたり、チャットに平文の
-  パスワードを貼らせたりしない。
+### 6. Secrets & hygiene
 
-## 6. 注意事項
-
-- サーバーの認証情報(SSH鍵、トークン、Webhookのシークレット、
-  `config.local.php` のDB接続情報など)はこのファイルやコミット内容に
-  含めない。認証は既存のgit remote設定・WADAX側のデプロイキー・
-  GitHub Webhook設定・サーバー上に直接配置した設定ファイルに任せる。
-- Webhookの二重登録に注意する。同じPayload URLのWebhookが複数
-  存在しないか、リポジトリのSettings → Webhooksで時々確認する。
-- push即座に本番反映されるため、壊れた状態のファイルを絶対に
-  pushしない。不安な変更(大きな構造変更など)の場合は、pushする前に
-  一度ユーザーに確認を取ってから実行する。
+- Never put server credentials (SSH keys, tokens, webhook secrets,
+  `config.local.php` DB credentials) in this file or in commits. Auth relies
+  on the existing git remote config, the WADAX deploy key, GitHub webhook
+  config, and config files placed directly on the server.
+- Watch for duplicate webhooks — periodically check the repo's
+  Settings → Webhooks for more than one hook on the same payload URL.
+- Never push a broken file, since push is immediate production release. For
+  risky/large changes, confirm with the user before pushing.
