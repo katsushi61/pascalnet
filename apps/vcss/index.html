@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<!--
+  App: vcss
+  Created: 2026-08-17
+  Description: VCSS(Venous Clinical Severity Score)両下肢評価。改訂版10項目×0-3点、左右別に採点しカルテ用テキストをコピー。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>VCSS 評価</title>
+<script>const CONFIG = { apiBase: "", basePath: "" };</script>
+<style>
+  :root{
+    --ink:#20242c;
+    --sub:#6b7280;
+    --bg:#f3f5f8;
+    --card:#ffffff;
+    --line:#e2e6ec;
+    --vein:#274c8f;        /* 静脈ブルー */
+    --vein-deep:#1b3563;
+    --sev0:#c8ced8;
+    --sev-low:#3f8f5a;
+    --sev-mid:#d99a2b;
+    --sev-high:#c3452f;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{font-size:16px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    background:var(--bg);color:var(--ink);
+    padding-bottom:calc(90px + env(safe-area-inset-bottom));
+  }
+  header.app{
+    background:var(--vein-deep);color:#fff;
+    padding:14px 16px 12px;
+  }
+  header.app .eyebrow{
+    font-size:.68rem;letter-spacing:.14em;opacity:.75;text-transform:uppercase;
+  }
+  header.app h1{font-size:1.05rem;font-weight:600;margin-top:2px}
+
+  /* ---- 合計ゲージ(固定サマリー) ---- */
+  .summary{
+    position:sticky;top:0;z-index:20;
+    background:var(--card);border-bottom:1px solid var(--line);
+    padding:10px 16px 12px;
+  }
+  .gauge-row{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .gauge-row:first-child{margin-top:0}
+  .gauge-label{
+    width:56px;flex:none;font-size:.78rem;font-weight:600;color:var(--sub);
+  }
+  .gauge-label.active{color:var(--vein)}
+  .gauge{
+    flex:1;height:14px;border-radius:7px;background:#e9edf3;position:relative;overflow:hidden;
+  }
+  .gauge .fill{
+    height:100%;width:0%;border-radius:7px;
+    background:var(--sev0);
+    transition:width .25s ease,background-color .25s ease;
+  }
+  .gauge .tick{
+    position:absolute;top:0;bottom:0;width:1px;background:rgba(32,36,44,.18);
+  }
+  .gauge-num{
+    width:64px;flex:none;text-align:right;
+    font-variant-numeric:tabular-nums;font-size:.95rem;font-weight:700;
+  }
+  .gauge-num small{font-weight:500;color:var(--sub);font-size:.72rem}
+  .scale{
+    display:flex;justify-content:space-between;
+    margin:4px 0 0 66px;padding-right:64px;
+    font-size:.62rem;color:var(--sub);font-variant-numeric:tabular-nums;
+  }
+
+  /* ---- 左右タブ ---- */
+  .tabs{
+    display:flex;gap:8px;padding:12px 16px 4px;
+  }
+  .tabs button{
+    flex:1;padding:10px 0;border:1px solid var(--line);border-radius:999px;
+    background:var(--card);color:var(--sub);font-size:.9rem;font-weight:600;cursor:pointer;
+  }
+  .tabs button.on{
+    background:var(--vein);border-color:var(--vein);color:#fff;
+  }
+
+  /* ---- 項目カード ---- */
+  .items{padding:8px 16px 0;display:flex;flex-direction:column;gap:10px}
+  .item{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 14px;
+  }
+  .item-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .item-name{font-size:.92rem;font-weight:600}
+  .item-name span{font-size:.68rem;color:var(--sub);font-weight:500;margin-left:6px}
+  .item-score{
+    font-variant-numeric:tabular-nums;font-weight:700;font-size:1rem;color:var(--sev0);
+  }
+  .seg{display:flex;gap:6px;margin-top:10px}
+  .seg button{
+    flex:1;padding:9px 0;border:1px solid var(--line);border-radius:9px;
+    background:#fafbfc;font-size:.95rem;font-weight:600;color:var(--sub);cursor:pointer;
+    font-variant-numeric:tabular-nums;
+  }
+  .seg button.on{color:#fff;border-color:transparent}
+  .seg button.on.s0{background:#8a94a3}
+  .seg button.on.s1{background:var(--sev-low)}
+  .seg button.on.s2{background:var(--sev-mid)}
+  .seg button.on.s3{background:var(--sev-high)}
+  .item-desc{
+    margin-top:8px;font-size:.78rem;line-height:1.55;color:var(--sub);
+    min-height:1.2em;
+  }
+
+  /* ---- フッター操作 ---- */
+  .actions{
+    position:fixed;left:0;right:0;bottom:0;z-index:30;
+    background:rgba(255,255,255,.96);backdrop-filter:blur(6px);
+    border-top:1px solid var(--line);
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+    display:flex;gap:10px;
+  }
+  .actions .copy{
+    flex:2.5;padding:13px 0;border:none;border-radius:12px;
+    background:var(--vein);color:#fff;font-size:.95rem;font-weight:700;cursor:pointer;
+  }
+  .actions .copy:active{background:var(--vein-deep)}
+  .actions .reset{
+    flex:1;padding:13px 0;border:1px solid var(--line);border-radius:12px;
+    background:#fff;color:var(--sub);font-size:.88rem;font-weight:600;cursor:pointer;
+  }
+  .toast{
+    position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(8px);
+    background:var(--ink);color:#fff;font-size:.82rem;
+    padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;
+    transition:opacity .2s,transform .2s;z-index:40;white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media (min-width:600px){
+    .items,.summary,.tabs{max-width:640px;margin-left:auto;margin-right:auto}
+    header.app>div{max-width:640px;margin:0 auto}
+  }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div>
+    <div class="eyebrow">Venous Clinical Severity Score</div>
+    <h1>VCSS 評価(改訂版・両下肢)</h1>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="gauge-row">
+    <div class="gauge-label" id="lblR">右下肢</div>
+    <div class="gauge" aria-hidden="true">
+      <div class="fill" id="fillR"></div>
+      <div class="tick" style="left:33.33%"></div>
+      <div class="tick" style="left:66.66%"></div>
+    </div>
+    <div class="gauge-num"><span id="numR">0</span><small>/30</small></div>
+  </div>
+  <div class="gauge-row">
+    <div class="gauge-label" id="lblL">左下肢</div>
+    <div class="gauge" aria-hidden="true">
+      <div class="fill" id="fillL"></div>
+      <div class="tick" style="left:33.33%"></div>
+      <div class="tick" style="left:66.66%"></div>
+    </div>
+    <div class="gauge-num"><span id="numL">0</span><small>/30</small></div>
+  </div>
+  <div class="scale"><span>0</span><span>10</span><span>20</span><span>30</span></div>
+</div>
+
+<div class="tabs">
+  <button id="tabR" onclick="setSide('R')">右下肢</button>
+  <button id="tabL" onclick="setSide('L')">左下肢</button>
+</div>
+
+<div class="items" id="items"></div>
+
+<div class="actions">
+  <button class="reset" onclick="resetAll()">リセット</button>
+  <button class="copy" onclick="copyForChart()">カルテ用にコピー</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+// ---- 永続化(localStorage / vcss: で名前空間化) ----
+function saveState(key, value){
+  try{ localStorage.setItem("vcss:"+key, JSON.stringify(value)); }catch(e){}
+}
+function loadState(key, fallback){
+  try{
+    const v = localStorage.getItem("vcss:"+key);
+    return v === null ? fallback : JSON.parse(v);
+  }catch(e){ return fallback; }
+}
+
+// ---- 改訂版VCSS 10項目(Vasquez 2010) ----
+const ITEMS = [
+  { id:"pain", name:"疼痛", en:"Pain",
+    desc:["なし",
+          "時々あり(日常活動の制限なし)",
+          "毎日あり(日常活動に中等度の支障)",
+          "毎日あり(日常活動に高度の支障)"] },
+  { id:"varicose", name:"静脈瘤", en:"Varicose veins",
+    desc:["なし",
+          "少数(散在性。網目状の冠状静脈拡張を含む)",
+          "多発(大腿または下腿のいずれかに限局)",
+          "多発(大腿と下腿の両方に及ぶ)"] },
+  { id:"edema", name:"静脈性浮腫", en:"Venous edema",
+    desc:["なし",
+          "足部・足関節に限局",
+          "足関節より上〜膝下まで",
+          "膝以上に及ぶ"] },
+  { id:"pigment", name:"色素沈着", en:"Skin pigmentation",
+    desc:["なし(または限局した淡い変化)",
+          "果部周囲に限局",
+          "下腿遠位1/3にびまん性",
+          "下腿遠位1/3を超えて広範"] },
+  { id:"inflam", name:"炎症", en:"Inflammation",
+    desc:["なし",
+          "果部周囲に限局",
+          "下腿遠位1/3にびまん性",
+          "下腿遠位1/3を超えて広範"] },
+  { id:"indur", name:"硬結", en:"Induration",
+    desc:["なし",
+          "果部周囲に限局",
+          "下腿遠位1/3にびまん性",
+          "下腿遠位1/3を超えて広範"] },
+  { id:"ulcnum", name:"活動性潰瘍数", en:"Active ulcer number",
+    desc:["0個","1個","2個","3個以上"] },
+  { id:"ulcdur", name:"潰瘍持続期間", en:"Ulcer duration",
+    desc:["潰瘍なし","3か月未満","3か月〜1年","1年以上(未治癒)"] },
+  { id:"ulcsize", name:"潰瘍最大径", en:"Ulcer size",
+    desc:["潰瘍なし","2cm未満","2〜6cm","6cmを超える"] },
+  { id:"comp", name:"圧迫療法", en:"Compression",
+    desc:["未使用",
+          "間欠的に使用",
+          "ほぼ毎日使用",
+          "毎日・完全に遵守"] }
+];
+
+// ---- 状態 ----
+let state = loadState("state", null) || {
+  R: Object.fromEntries(ITEMS.map(i=>[i.id,0])),
+  L: Object.fromEntries(ITEMS.map(i=>[i.id,0]))
+};
+let side = loadState("side", "R");
+
+// ---- 描画 ----
+function total(s){ return ITEMS.reduce((sum,i)=>sum+(state[s][i.id]||0),0); }
+function sevColor(t){
+  if(t===0) return "var(--sev0)";
+  if(t<=9)  return "var(--sev-low)";
+  if(t<=19) return "var(--sev-mid)";
+  return "var(--sev-high)";
+}
+function renderSummary(){
+  const tR = total("R"), tL = total("L");
+  const fR = document.getElementById("fillR"), fL = document.getElementById("fillL");
+  fR.style.width = (tR/30*100)+"%"; fR.style.background = sevColor(tR);
+  fL.style.width = (tL/30*100)+"%"; fL.style.background = sevColor(tL);
+  document.getElementById("numR").textContent = tR;
+  document.getElementById("numL").textContent = tL;
+  document.getElementById("lblR").classList.toggle("active", side==="R");
+  document.getElementById("lblL").classList.toggle("active", side==="L");
+}
+function renderItems(){
+  const wrap = document.getElementById("items");
+  wrap.innerHTML = "";
+  for(const item of ITEMS){
+    const val = state[side][item.id]||0;
+    const card = document.createElement("div");
+    card.className = "item";
+    const scoreColor = ["#8a94a3","var(--sev-low)","var(--sev-mid)","var(--sev-high)"][val];
+    card.innerHTML =
+      '<div class="item-head">'+
+        '<div class="item-name">'+item.name+'<span>'+item.en+'</span></div>'+
+        '<div class="item-score" style="color:'+scoreColor+'">'+val+'</div>'+
+      '</div>'+
+      '<div class="seg">'+
+        [0,1,2,3].map(n=>
+          '<button class="'+(n===val?("on s"+n):"")+'" onclick="setScore(\''+item.id+'\','+n+')">'+n+'</button>'
+        ).join("")+
+      '</div>'+
+      '<div class="item-desc">'+val+'点:'+item.desc[val]+'</div>';
+    wrap.appendChild(card);
+  }
+  document.getElementById("tabR").classList.toggle("on", side==="R");
+  document.getElementById("tabL").classList.toggle("on", side==="L");
+}
+function renderAll(){ renderSummary(); renderItems(); }
+
+// ---- 操作 ----
+function setScore(id, n){
+  state[side][id] = n;
+  saveState("state", state);
+  renderAll();
+}
+function setSide(s){
+  side = s;
+  saveState("side", side);
+  renderAll();
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+function resetAll(){
+  if(!confirm("両下肢の評価をすべて0に戻します。よろしいですか?")) return;
+  state = {
+    R: Object.fromEntries(ITEMS.map(i=>[i.id,0])),
+    L: Object.fromEntries(ITEMS.map(i=>[i.id,0]))
+  };
+  saveState("state", state);
+  renderAll();
+}
+
+// ---- カルテ用テキスト ----
+function chartText(){
+  const d = new Date();
+  const pad = n=>String(n).padStart(2,"0");
+  const dateStr = d.getFullYear()+"/"+pad(d.getMonth()+1)+"/"+pad(d.getDate());
+  const line = s=>{
+    const parts = ITEMS.map(i=>i.name+":"+(state[s][i.id]||0)).join(" ");
+    return (s==="R"?"右":"左")+"下肢 "+total(s)+"/30(" + parts + ")";
+  };
+  return "VCSS("+dateStr+")\n"+line("R")+"\n"+line("L");
+}
+function copyForChart(){
+  const text = chartText();
+  const done = ok=>showToast(ok?"カルテ用テキストをコピーしました":"コピーできませんでした");
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>done(true)).catch(()=>fallbackCopy(text, done));
+  }else{
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done){
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  let ok = false;
+  try{ ok = document.execCommand("copy"); }catch(e){}
+  document.body.removeChild(ta);
+  done(ok);
+}
+let toastTimer = null;
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove("show"), 1800);
+}
+
+renderAll();
+</script>
+</body>
+</html>
