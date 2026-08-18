@@ -1,0 +1,279 @@
+<!doctype html>
+<!--
+  App: vcss-evaluator-offline
+  Created: 2026-08-18
+  Description: VCSS(Venous Clinical Severity Score)両下肢評価のオフライン版。改訂版10項目×0-3点を左右別にタップで採点し、合計スコアとカルテ用テキストのコピーに対応。外部通信なしの単一HTMLで動作する。
+-->
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f7f8">
+  <title>VCSS 評価</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
+      color: #1a2b33;
+      background: #f5f7f8;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; min-height: 100%; background: #f5f7f8; }
+    button { font: inherit; }
+    .page {
+      min-height: 100vh; max-width: 720px; margin: 0 auto;
+      padding-bottom: calc(90px + env(safe-area-inset-bottom));
+      background: #f5f7f8;
+    }
+    .header {
+      position: sticky; top: 0; z-index: 10; padding: 14px 16px 12px;
+      background: rgba(245,247,248,.97); border-bottom: 1px solid #e2e8eb;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    .head-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .eyebrow { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #7a8c96; font-weight: 600; }
+    h1 { margin: 2px 0 0; font-size: 20px; font-weight: 800; }
+    .ghost-btn {
+      background: transparent; border: 1px solid #c9d3d8; color: #5a6b75;
+      border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+    }
+    .rail-wrap { margin: 2px 0 12px; }
+    .rail { position: relative; height: 10px; background: #e4eaed; border-radius: 5px; }
+    .rail-fill { height: 100%; width: 0; border-radius: 5px; transition: width .2s, background .2s; }
+    .tick { position: absolute; top: 100%; transform: translateX(-50%); }
+    .tick-label { font-size: 9.5px; color: #9aa9b1; font-variant-numeric: tabular-nums; }
+    .leg-row { display: flex; gap: 8px; margin-top: 14px; }
+    .leg-tab {
+      flex: 1; display: flex; align-items: baseline; justify-content: space-between;
+      padding: 10px 14px; border: 1.5px solid #d7dfe3; border-radius: 10px;
+      background: #fff; cursor: pointer; transition: background .12s, border-color .12s;
+    }
+    .leg-tab.active { border-color: #29527a; background: #edf3f8; }
+    .leg-name { font-size: 14px; font-weight: 700; }
+    .leg-score { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+    .leg-unit { font-size: 11px; color: #9aa9b1; font-weight: 500; margin-left: 2px; }
+    .list { padding: 12px 16px 0; display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: #fff; border: 1px solid #e2e8eb; border-radius: 12px;
+      padding: 12px 14px 10px; transition: opacity .15s;
+    }
+    .card.disabled { opacity: .45; }
+    .card-head { display: flex; justify-content: space-between; align-items: baseline; }
+    .item-no { display: inline-block; width: 20px; font-size: 10.5px; color: #8a9ba6; font-variant-numeric: tabular-nums; }
+    .item-label { font-size: 15.5px; font-weight: 700; }
+    .item-score { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .item-note { margin: 2px 0 0 20px; font-size: 11.5px; color: #7a8c96; }
+    .seg-row { display: flex; gap: 6px; margin-top: 10px; }
+    .seg-btn {
+      flex: 1 1 0; min-width: 0; padding: 8px 2px 7px; border: 1.5px solid #d7dfe3;
+      border-radius: 8px; background: #fff; color: #3a4a54; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      font-weight: 500; transition: background .12s, border-color .12s;
+    }
+    .seg-btn.selected { background: #29527a; color: #fff; border-color: #29527a; font-weight: 700; }
+    .seg-btn:disabled { cursor: not-allowed; }
+    .seg-num { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+    .seg-chip { font-size: 10px; line-height: 1.2; text-align: center; }
+    .opt-text { margin-top: 8px; padding: 6px 10px; font-size: 12.5px; color: #3a4a54; background: #f2f5f7; border-radius: 7px; }
+    .footer {
+      position: fixed; left: 0; right: 0; bottom: 0; max-width: 720px; margin: 0 auto;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex;
+      justify-content: space-between; align-items: center; background: rgba(255,255,255,.96);
+      border-top: 1px solid #e2e8eb; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    }
+    .foot-totals { font-size: 14px; color: #3a4a54; font-variant-numeric: tabular-nums; }
+    .copy-btn { background: #29527a; color: #fff; border: 0; border-radius: 10px; padding: 12px 22px; font-size: 15px; font-weight: 700; cursor: pointer; letter-spacing: .02em; }
+    .copy-btn:active { background: #1e3f60; }
+    button:focus-visible { outline: 2px solid #29527a; outline-offset: 2px; }
+    @media (max-width: 390px) {
+      .seg-row { gap: 4px; }
+      .seg-chip { font-size: 9px; }
+      .copy-btn { padding-inline: 15px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .seg-btn, .leg-tab, .rail-fill, .card { transition: none; } }
+    @media print {
+      .header { position: static; }
+      .ghost-btn, .footer { display: none; }
+      .page { max-width: none; padding-bottom: 0; }
+      .card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="head-top">
+        <div>
+          <div class="eyebrow">Venous Clinical Severity Score</div>
+          <h1>VCSS 評価</h1>
+        </div>
+        <button type="button" class="ghost-btn" id="reset-btn">右をリセット</button>
+      </div>
+      <div class="rail-wrap" aria-label="合計スコア 0〜30">
+        <div class="rail">
+          <div class="rail-fill" id="rail-fill"></div>
+          <div class="tick" style="left:0%"><span class="tick-label">0</span></div>
+          <div class="tick" style="left:33.333%"><span class="tick-label">10</span></div>
+          <div class="tick" style="left:66.667%"><span class="tick-label">20</span></div>
+          <div class="tick" style="left:100%"><span class="tick-label">30</span></div>
+        </div>
+      </div>
+      <div class="leg-row" id="leg-row"></div>
+    </header>
+
+    <main class="list" id="item-list"></main>
+
+    <footer class="footer">
+      <div class="foot-totals" id="foot-totals"></div>
+      <button type="button" class="copy-btn" id="copy-btn">カルテ用にコピー</button>
+    </footer>
+  </div>
+
+  <script>
+    "use strict";
+
+    const ITEMS = [
+      { key:"pain", label:"疼痛", short:"疼痛", note:"静脈由来と考えられる痛み・重だるさ・不快感", opts:["なし","時々あり(日常活動の制限なし)","毎日あり(活動に支障はあるが日常生活は可能)","毎日あり(日常活動を大きく制限)"], chips:["なし","時々","毎日・軽度制限","毎日・高度制限"] },
+      { key:"vv", label:"静脈瘤", short:"瘤", note:"立位で径3mm以上の静脈瘤", opts:["なし","少数・散在性(corona phlebectatica を含む)","下腿または大腿のいずれかに限局","下腿と大腿の両方に多発"], chips:["なし","散在","下腿or大腿","下腿+大腿"] },
+      { key:"edema", label:"静脈性浮腫", short:"浮腫", note:"静脈由来と考えられる浮腫", opts:["なし","足部・足関節に限局","足関節より上〜膝下まで","膝以上に及ぶ"], chips:["なし","足関節まで","膝下まで","膝以上"] },
+      { key:"pigment", label:"色素沈着", short:"色素", note:"静脈うっ滞による褐色〜暗紫色の色調変化", opts:["なし,または限局性","果周囲に限局","下腿下1/3にびまん性","下腿下1/3を超えて広範"], chips:["なし/限局","果周囲","下腿下1/3","それ以上"] },
+      { key:"inflam", label:"炎症", short:"炎症", note:"発赤・蜂窩織炎・うっ滞性湿疹・皮膚炎", opts:["なし","果周囲に限局","下腿下1/3にびまん性","下腿下1/3を超えて広範"], chips:["なし","果周囲","下腿下1/3","それ以上"] },
+      { key:"indur", label:"硬結", short:"硬結", note:"脂肪皮膚硬化症・白色萎縮を含む皮膚皮下の硬化", opts:["なし","果周囲に限局","下腿下1/3にびまん性","下腿下1/3を超えて広範"], chips:["なし","果周囲","下腿下1/3","それ以上"] },
+      { key:"ulcN", label:"活動性潰瘍の数", short:"潰瘍数", note:"", opts:["0個","1個","2個","3個以上"], chips:["0","1","2","≥3"] },
+      { key:"ulcD", label:"潰瘍の持続期間", short:"潰瘍期間", note:"最も長い活動性潰瘍について", opts:["該当なし","3か月未満","3か月〜1年","1年以上未治癒"], chips:["—","<3か月","3か月〜1年",">1年"], ulcerDep:true },
+      { key:"ulcS", label:"潰瘍の大きさ", short:"潰瘍径", note:"最大の活動性潰瘍の最大径", opts:["該当なし","2cm未満","2〜6cm","6cm超"], chips:["—","<2cm","2〜6cm",">6cm"], ulcerDep:true },
+      { key:"comp", label:"圧迫療法", short:"圧迫", note:"弾性ストッキング等の使用状況", opts:["未使用または不遵守","間欠的に使用","ほぼ毎日使用","完全遵守(毎日使用)"], chips:["未使用","間欠的","ほぼ毎日","完全遵守"] }
+    ];
+
+    const ULC_N_IDX = ITEMS.findIndex(item => item.key === "ulcN");
+    const zeros = () => ITEMS.map(() => 0);
+    const state = { leg: "R", scores: { R: zeros(), L: zeros() }, copiedTimer: null };
+
+    const scoreColor = total => {
+      if (total === 0) return "#8a9ba6";
+      if (total <= 4) return "#3e7d5b";
+      if (total <= 9) return "#b07c24";
+      if (total <= 14) return "#b85a2b";
+      return "#a63a2e";
+    };
+    const total = arr => arr.reduce((sum, value) => sum + value, 0);
+    const escapeHtml = value => String(value).replace(/[&<>\"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'\"':"&quot;"}[char]));
+
+    function setScore(index, value) {
+      const next = [...state.scores[state.leg]];
+      next[index] = value;
+      if (index === ULC_N_IDX && value === 0) {
+        ITEMS.forEach((item, i) => { if (item.ulcerDep) next[i] = 0; });
+      }
+      state.scores[state.leg] = next;
+      clearCopied();
+      render();
+    }
+
+    function resetLeg() {
+      state.scores[state.leg] = zeros();
+      clearCopied();
+      render();
+    }
+
+    function emrText() {
+      const line = (side, arr) => `${side}下肢 合計${total(arr)}点（${ITEMS.map((item, i) => `${item.short}${arr[i]}`).join("/")}）`;
+      return ["【VCSS】", line("右", state.scores.R), line("左", state.scores.L)].join("\n");
+    }
+
+    function clearCopied() {
+      if (state.copiedTimer) window.clearTimeout(state.copiedTimer);
+      state.copiedTimer = null;
+      document.getElementById("copy-btn").textContent = "カルテ用にコピー";
+    }
+
+    async function copyEMR() {
+      const text = emrText();
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(textarea);
+          if (!ok) throw new Error("copy failed");
+        }
+        const button = document.getElementById("copy-btn");
+        button.textContent = "✓ コピーしました";
+        state.copiedTimer = window.setTimeout(clearCopied, 2000);
+      } catch (_) {
+        window.prompt("下の文章をコピーしてください", text);
+      }
+    }
+
+    function renderLegTabs() {
+      const html = ["R", "L"].map(side => {
+        const legTotal = total(state.scores[side]);
+        const active = state.leg === side;
+        return `<button type="button" class="leg-tab${active ? " active" : ""}" data-leg="${side}" aria-pressed="${active}">
+          <span class="leg-name">${side === "R" ? "右下肢" : "左下肢"}</span>
+          <span class="leg-score" style="color:${scoreColor(legTotal)}">${legTotal}<small class="leg-unit">/30</small></span>
+        </button>`;
+      }).join("");
+      const row = document.getElementById("leg-row");
+      row.innerHTML = html;
+      row.querySelectorAll("[data-leg]").forEach(button => {
+        button.addEventListener("click", () => {
+          state.leg = button.dataset.leg;
+          clearCopied();
+          render();
+        });
+      });
+    }
+
+    function renderItems() {
+      const current = state.scores[state.leg];
+      const ulcerAbsent = current[ULC_N_IDX] === 0;
+      const list = document.getElementById("item-list");
+      list.innerHTML = ITEMS.map((item, index) => {
+        const disabled = Boolean(item.ulcerDep && ulcerAbsent);
+        const value = current[index];
+        const buttons = item.chips.map((chip, score) => {
+          const selected = value === score;
+          return `<button type="button" class="seg-btn${selected ? " selected" : ""}" data-index="${index}" data-score="${score}" ${disabled ? "disabled" : ""} aria-pressed="${selected}">
+            <span class="seg-num">${score}</span><span class="seg-chip">${escapeHtml(chip)}</span>
+          </button>`;
+        }).join("");
+        const itemColor = value > 0 ? scoreColor(10 * (value / 3) + 1) : "#8a9ba6";
+        return `<section class="card${disabled ? " disabled" : ""}">
+          <div class="card-head"><div><span class="item-no">${index + 1}</span><span class="item-label">${escapeHtml(item.label)}</span></div><span class="item-score" style="color:${itemColor}">${value}</span></div>
+          ${item.note ? `<div class="item-note">${escapeHtml(item.note)}</div>` : ""}
+          <div class="seg-row" role="radiogroup" aria-label="${escapeHtml(item.label)}">${buttons}</div>
+          <div class="opt-text">${disabled ? "潰瘍なしのため該当なし" : escapeHtml(item.opts[value])}</div>
+        </section>`;
+      }).join("");
+      list.querySelectorAll("[data-index]").forEach(button => {
+        button.addEventListener("click", () => setScore(Number(button.dataset.index), Number(button.dataset.score)));
+      });
+    }
+
+    function render() {
+      const rightTotal = total(state.scores.R);
+      const leftTotal = total(state.scores.L);
+      const currentTotal = state.leg === "R" ? rightTotal : leftTotal;
+      document.getElementById("reset-btn").textContent = `${state.leg === "R" ? "右" : "左"}をリセット`;
+      const fill = document.getElementById("rail-fill");
+      fill.style.width = `${(currentTotal / 30) * 100}%`;
+      fill.style.background = scoreColor(currentTotal);
+      document.getElementById("foot-totals").innerHTML = `右 <b style="color:${scoreColor(rightTotal)}">${rightTotal}</b> ／ 左 <b style="color:${scoreColor(leftTotal)}">${leftTotal}</b>`;
+      renderLegTabs();
+      renderItems();
+    }
+
+    document.getElementById("reset-btn").addEventListener("click", resetLeg);
+    document.getElementById("copy-btn").addEventListener("click", copyEMR);
+    render();
+  </script>
+</body>
+</html>
