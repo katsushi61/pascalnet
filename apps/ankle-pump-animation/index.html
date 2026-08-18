@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>足首の背屈運動（アンクルポンプ）</title>
+<style>
+  :root{
+    --ink:#123a5c;
+    --ink-soft:#4b6d88;
+    --brand:#1a6fb5;
+    --brand-lt:#2f92d8;
+    --paper:#f2f7fb;
+    --line:#d8e6f1;
+    --skin:#f4d0b4;
+    --skin-sh:#e2b190;
+    --skin-dp:#cf9670;
+    --muscle:#eaa2a9;
+    --wall:#2f7dc0;
+    --lumen:#d9edfc;
+    --blood:#d9536d;
+    --good:#2f8f4e;
+    --good-bg:#eef8f1;
+    --warn:#c0392b;
+    --warn-bg:#fdf1f0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:linear-gradient(180deg,#ffffff 0%,var(--paper) 100%);
+    color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic Medium","Yu Gothic",Meiryo,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .stage{max-width:1240px;margin:0 auto;padding:clamp(12px,2vw,24px)}
+
+  /* ---------- header ---------- */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .eyebrow{font-size:clamp(11px,1.1vw,13px);letter-spacing:.14em;color:var(--good);font-weight:700;margin-bottom:4px}
+  h1{margin:0;font-size:clamp(22px,3.4vw,40px);font-weight:800;letter-spacing:.02em;color:var(--brand)}
+  h1 span{font-size:.52em;font-weight:700;color:var(--ink-soft);letter-spacing:.06em;margin-left:.3em}
+  .counter{text-align:right;min-width:190px;flex:0 0 auto}
+  .counter .num{font-size:clamp(20px,2.6vw,30px);font-weight:800;color:var(--ink);line-height:1}
+  .counter .num b{color:var(--brand);font-size:1.35em}
+  .counter .sub{font-size:12px;color:var(--ink-soft);margin-top:4px;letter-spacing:.08em}
+  .bar{margin-top:7px;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--brand-lt),var(--brand));border-radius:99px;transition:width .35s ease}
+
+  /* ---------- panels ---------- */
+  main{display:grid;grid-template-columns:1.32fr 1fr;gap:14px;align-items:stretch}
+  .panel{position:relative;background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px 14px 12px;box-shadow:0 6px 22px rgba(18,58,92,.06)}
+  .plabel{position:absolute;top:12px;left:14px;font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--ink-soft);background:var(--paper);border-radius:99px;padding:4px 11px}
+  .panel svg{display:block;width:100%;height:auto}
+  .caption{margin-top:8px;display:flex;align-items:flex-start;gap:10px;min-height:52px}
+  .stepnum{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--brand);color:#fff;font-weight:800;font-size:16px;display:grid;place-items:center;margin-top:1px}
+  .ctext{font-size:clamp(14px,1.55vw,19px);font-weight:700;line-height:1.5}
+  .ctext em{font-style:normal;color:var(--brand)}
+  .vtext{font-size:clamp(13px,1.35vw,16px);font-weight:700;line-height:1.6;text-align:center;width:100%}
+  .vtext b{color:var(--warn)}
+  .vtext i{font-style:normal;color:var(--brand)}
+
+  /* keep badge */
+  .keep{position:absolute;top:10px;right:12px;width:clamp(74px,8.5vw,104px);opacity:0;transform:scale(.9);transition:opacity .3s,transform .3s}
+  .keep.on{opacity:1;transform:scale(1)}
+  .keep .ring{display:block;width:100%;height:auto}
+  .keep .val{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+  .keep .val u{display:block;text-decoration:none;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--brand)}
+  .keep .val s{display:block;text-decoration:none;font-size:clamp(20px,2.6vw,30px);font-weight:800;line-height:1;color:var(--ink)}
+  .keep .val small{font-size:10px;color:var(--ink-soft)}
+
+  /* ---------- steps strip ---------- */
+  .steps{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:14px 0 12px}
+  .step{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 8px;display:flex;gap:8px;align-items:center;transition:.35s}
+  .step .n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--paper);color:var(--ink-soft);font-size:12px;font-weight:800;display:grid;place-items:center;transition:.35s}
+  .step .t{font-size:clamp(10px,1.02vw,12.5px);font-weight:700;line-height:1.35;color:var(--ink-soft);transition:.35s}
+  .step.on{background:var(--brand);border-color:var(--brand);box-shadow:0 6px 16px rgba(26,111,181,.28)}
+  .step.on .n{background:#fff;color:var(--brand)}
+  .step.on .t{color:#fff}
+
+  /* ---------- cards ---------- */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card{border-radius:16px;padding:12px 15px}
+  .card h2{margin:0 0 7px;font-size:14px;letter-spacing:.1em}
+  .card ul{margin:0;padding:0;list-style:none;display:grid;gap:5px}
+  .card li{font-size:clamp(11.5px,1.15vw,14px);line-height:1.5;font-weight:600;padding-left:19px;position:relative}
+  .card li::before{position:absolute;left:0;top:0}
+  .good{background:var(--good-bg)}
+  .good h2{color:var(--good)}
+  .good li::before{content:"✓";color:var(--good);font-weight:800}
+  .warn{background:var(--warn-bg)}
+  .warn h2{color:var(--warn)}
+  .warn li::before{content:"●";color:var(--warn);font-size:9px;top:4px}
+
+  footer{margin-top:13px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .note{font-size:clamp(11.5px,1.2vw,14.5px);font-weight:700;color:var(--brand)}
+  .clinic{font-size:11px;color:var(--ink-soft);letter-spacing:.06em}
+
+  /* ---------- controls ---------- */
+  .ctrl{display:flex;gap:7px;align-items:center}
+  .ctrl button{font-family:inherit;font-size:12px;font-weight:700;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:99px;padding:7px 14px;cursor:pointer;transition:.2s}
+  .ctrl button:hover{border-color:var(--brand);color:var(--brand)}
+  .ctrl button:focus-visible{outline:3px solid rgba(26,111,181,.4);outline-offset:2px}
+  .loop{font-size:11px;color:var(--ink-soft);display:inline-flex;align-items:center;gap:5px}
+  .loop .dot{width:7px;height:7px;border-radius:50%;background:var(--brand-lt);animation:blink 2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+  @media (max-width:900px){
+    main{grid-template-columns:1fr}
+    .steps{grid-template-columns:repeat(3,1fr)}
+    .cards{grid-template-columns:1fr}
+    .counter{text-align:left;min-width:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .bar i{transition:none}
+    .loop .dot{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <header>
+    <div>
+      <div class="eyebrow">ふくらはぎは「第二の心臓」</div>
+      <h1>足首の背屈運動<span>アンクルポンプ</span></h1>
+    </div>
+    <div class="counter">
+      <div class="num"><b id="repNow">1</b> / 10 回</div>
+      <div class="sub">10〜20回 くりかえしましょう</div>
+      <div class="bar"><i id="repBar"></i></div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== 動作パネル ===== -->
+    <section class="panel">
+      <div class="plabel">動 作</div>
+
+      <div class="keep" id="keep">
+        <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" fill="#fff" stroke="#e6f0f8" stroke-width="7"/>
+          <circle id="ringArc" cx="50" cy="50" r="46" fill="none" stroke="#1a6fb5" stroke-width="7"
+                  stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="0"
+                  transform="rotate(-90 50 50)"/>
+        </svg>
+        <div class="val"><u>キープ</u><s id="keepSec">5</s><small>秒</small></div>
+      </div>
+
+      <svg viewBox="0 0 560 400" role="img" aria-label="椅子に座って、かかとを床につけたままつま先をゆっくり上げる動作">
+        <defs>
+          <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef4f9"/>
+          </linearGradient>
+          <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#eadcc7"/><stop offset="1" stop-color="#dcc9ad"/>
+          </linearGradient>
+          <linearGradient id="skinG" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#e9bf9e"/><stop offset=".45" stop-color="#f6d5ba"/><stop offset="1" stop-color="#eec5a6"/>
+          </linearGradient>
+
+          <!-- 脚一式（近景・遠景で共有） -->
+          <g id="leg">
+            <!-- 足（すね の下に描画して関節を隠す） -->
+            <g id="foot">
+              <path d="M 208 292 L 246 288 C 254 312 272 328 302 331 L 323 333
+                       C 334 334 335 345 323 346 L 233 347 C 208 347 202 320 208 292 Z"
+                    fill="url(#skinG)"/>
+              <path d="M 302 331 L 323 333" stroke="#dfb08c" stroke-width="2" fill="none" opacity=".7"/>
+              <path d="M 296 334 q 4 6 2 11 M 306 335 q 4 5 2 10" stroke="#dfb08c" stroke-width="1.6" fill="none" opacity=".65"/>
+            </g>
+            <!-- すね（弛緩） -->
+            <path id="shinRelax"
+                  d="M 182 186 C 170 230 166 258 186 290 L 214 313 L 244 306 C 248 264 244 224 234 186 Z"
+                  fill="url(#skinG)"/>
+            <!-- すね（収縮＝ふくらはぎが盛り上がる） -->
+            <path id="shinFlex" opacity="0"
+                  d="M 182 186 C 158 228 150 256 182 292 L 214 313 L 244 306 C 248 264 244 224 234 186 Z"
+                  fill="url(#skinG)"/>
+            <ellipse id="calfShade" cx="180" cy="246" rx="20" ry="40" fill="#e3ae89" opacity="0"/>
+            <!-- 膝・太もも -->
+            <circle cx="206" cy="172" r="30" fill="url(#skinG)"/>
+            <rect x="-14" y="140" width="218" height="58" rx="29" fill="url(#skinG)"/>
+            <path d="M 196 152 q 12 20 6 40" stroke="#e0b391" stroke-width="2.4" fill="none" opacity=".6"/>
+          </g>
+        </defs>
+
+        <!-- 背景 -->
+        <rect x="0" y="0" width="560" height="345" fill="url(#wall)"/>
+        <rect x="0" y="345" width="560" height="55" fill="url(#floor)"/>
+        <path d="M0 345 H560" stroke="#c9b190" stroke-width="2"/>
+
+        <!-- 椅子 -->
+        <rect x="2" y="128" width="176" height="28" rx="9" fill="#4d525a"/>
+        <rect x="2" y="150" width="176" height="9" rx="4" fill="#3b4048"/>
+        <rect x="150" y="157" width="12" height="188" rx="4" fill="#c9a271"/>
+        <rect x="26" y="157" width="12" height="188" rx="4" fill="#b8905f"/>
+
+        <!-- 奥の脚 -->
+        <use href="#leg" x="0" y="0" transform="translate(-30,14) scale(.985)" style="filter:brightness(.92) saturate(.92)"/>
+        <!-- 手前の脚 -->
+        <use href="#leg" x="0" y="0"/>
+
+        <!-- かかと固定マーカー -->
+        <ellipse id="heelMark" cx="232" cy="346" rx="30" ry="7" fill="none" stroke="#1a6fb5" stroke-width="2.5" stroke-dasharray="5 5" opacity=".55"/>
+        <text x="232" y="371" text-anchor="middle" font-size="15" font-weight="700" fill="#1a6fb5">かかとは床につけたまま</text>
+
+        <!-- 動きの矢印 -->
+        <g id="moveArrow" opacity="0">
+          <path d="M 356 316 Q 392 292 388 246" stroke="#1a6fb5" stroke-width="6" fill="none" stroke-linecap="round"/>
+          <path d="M 378 252 L 388 234 L 398 254 Z" fill="#1a6fb5"/>
+        </g>
+        <g id="backArrow" opacity="0">
+          <path d="M 388 246 Q 392 292 356 316" stroke="#7aa8cc" stroke-width="6" fill="none" stroke-linecap="round"/>
+          <path d="M 366 302 L 350 320 L 372 322 Z" fill="#7aa8cc"/>
+        </g>
+
+        <!-- 収縮バッジ -->
+        <g id="flexBadge" opacity="0">
+          <rect x="18" y="240" width="150" height="34" rx="17" fill="#1a6fb5"/>
+          <text x="93" y="263" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">ふくらはぎが収縮</text>
+        </g>
+      </svg>
+
+      <div class="caption">
+        <div class="stepnum" id="stepNum">1</div>
+        <div class="ctext" id="stepText">椅子に座ってリラックスします</div>
+      </div>
+    </section>
+
+    <!-- ===== 体内パネル ===== -->
+    <section class="panel">
+      <div class="plabel">からだの中では</div>
+
+      <svg viewBox="0 0 300 400" role="img" aria-label="ふくらはぎの筋肉が収縮すると静脈弁が開き、血液が心臓へ押し戻される様子">
+        <defs>
+          <linearGradient id="lumenG" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="#cbe6fa"/><stop offset="1" stop-color="#e8f5ff"/>
+          </linearGradient>
+          <clipPath id="lumenClip"><rect id="clipRect" x="124" y="24" width="52" height="352" rx="26"/></clipPath>
+        </defs>
+
+        <rect x="0" y="0" width="300" height="400" fill="#fbfdff"/>
+
+        <!-- 筋肉 -->
+        <g id="muscleL">
+          <rect x="18" y="40" width="88" height="320" rx="44" fill="#eaa2a9"/>
+          <path d="M40 80 V320 M62 70 V330 M84 84 V316" stroke="#dc8b95" stroke-width="2.4" fill="none" opacity=".55"/>
+        </g>
+        <g id="muscleR">
+          <rect x="194" y="40" width="88" height="320" rx="44" fill="#eaa2a9"/>
+          <path d="M216 84 V316 M238 70 V330 M260 80 V320" stroke="#dc8b95" stroke-width="2.4" fill="none" opacity=".55"/>
+        </g>
+
+        <!-- 静脈 -->
+        <rect id="veinWall" x="117" y="20" width="66" height="360" rx="33" fill="#2f7dc0"/>
+        <rect id="veinLumen" x="124" y="24" width="52" height="352" rx="26" fill="url(#lumenG)"/>
+
+        <g clip-path="url(#lumenClip)">
+          <g id="arrows"></g>
+          <g id="cells"></g>
+        </g>
+
+        <!-- 静脈弁 -->
+        <g id="valveA"></g>
+        <g id="valveB"></g>
+
+        <!-- ラベル -->
+        <path d="M150 16 L150 2 M143 9 L150 1 L157 9" stroke="#c0392b" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="163" y="14" font-size="15" font-weight="700" fill="#c0392b">心臓へ</text>
+        <text x="62" y="30" text-anchor="middle" font-size="14" font-weight="700" fill="#b3616c">ふくらはぎの筋肉</text>
+        <text x="240" y="30" text-anchor="middle" font-size="14" font-weight="700" fill="#2f7dc0">静脈弁</text>
+        <path d="M228 36 L192 128" stroke="#2f7dc0" stroke-width="1.6" fill="none" opacity=".7"/>
+      </svg>
+
+      <div class="caption"><div class="vtext" id="veinText">筋肉がゆるみ、<i>静脈弁が閉じて</i>血液の逆流を防ぎます</div></div>
+    </section>
+  </main>
+
+  <!-- ===== 手順 ===== -->
+  <div class="steps" id="steps">
+    <div class="step" data-s="1"><span class="n">1</span><span class="t">椅子に座って<br>リラックス</span></div>
+    <div class="step" data-s="2"><span class="n">2</span><span class="t">かかとは床に<br>つけたまま</span></div>
+    <div class="step" data-s="3"><span class="n">3</span><span class="t">つま先を大きく<br>ゆっくり上げる</span></div>
+    <div class="step" data-s="4"><span class="n">4</span><span class="t">その姿勢で<br>5〜10秒キープ</span></div>
+    <div class="step" data-s="5"><span class="n">5</span><span class="t">ゆっくり元の<br>位置へ戻す</span></div>
+    <div class="step" data-s="6"><span class="n">6</span><span class="t">もう一度<br>くりかえす</span></div>
+  </div>
+
+  <div class="cards">
+    <div class="card good">
+      <h2>ポイント</h2>
+      <ul>
+        <li>できるだけ大きく動かしましょう</li>
+        <li>動作はゆっくり行いましょう</li>
+        <li>背屈した位置で5〜10秒保ちましょう</li>
+        <li>1日に数回行いましょう</li>
+      </ul>
+    </div>
+    <div class="card warn">
+      <h2>注意点</h2>
+      <ul>
+        <li>痛みがある場合は無理をしないでください</li>
+        <li>体調に合わせて行いましょう</li>
+        <li>深部静脈血栓症の疑いがある場合は医師の指示に従ってください</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <div class="note">デスクワークや長時間の立ち仕事、移動の合間などに、こまめに行いましょう。</div>
+    <div class="ctrl">
+      <span class="loop"><span class="dot"></span>ループ再生</span>
+      <button id="btnPlay" aria-label="再生と一時停止">一時停止</button>
+      <button id="btnSpeed" aria-label="再生速度">速度 ×1.0</button>
+    </div>
+  </footer>
+  <div class="clinic" style="margin-top:6px">こうち静脈ケアクリニック</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const $ = s => document.querySelector(s);
+
+  /* ---------------- 動作シーケンス ---------------- */
+  const MAX = 30;          // 背屈角度（度）
+  const REPS = 10;
+  const PH = {
+    prep:{dur:1.8, step:1, text:'椅子に座ってリラックスします。足を少し前に出し、かかとは床につけたまま。'},
+    up  :{dur:2.2, step:3, text:'つま先をできるだけ大きく、<em>ゆっくり</em>上へ上げます（背屈）'},
+    hold:{dur:5.0, step:4, text:'この姿勢で<em>5〜10秒</em>保ちます'},
+    down:{dur:2.2, step:5, text:'ゆっくりと元の位置に戻します'},
+    rest:{dur:1.0, step:6, text:'もう一度くりかえします'},
+    done:{dur:3.0, step:6, text:'おつかれさまでした。1日に数回、こまめに行いましょう。'}
+  };
+  let cur='prep', t=0, rep=1, playing=true, speed=1, last=0;
+
+  function advance(){
+    if(cur==='rest'){ rep++; if(rep>REPS){ cur='done'; } else { cur='up'; } }
+    else if(cur==='done'){ rep=1; cur='prep'; }
+    else if(cur==='prep'){ cur='up'; }
+    else if(cur==='up'){ cur='hold'; }
+    else if(cur==='hold'){ cur='down'; }
+    else if(cur==='down'){ cur='rest'; }
+    t=0; onPhase();
+  }
+  const ease = x => x<.5 ? 2*x*x : 1-Math.pow(-2*x+2,2)/2;
+
+  function angle(){
+    const d = PH[cur].dur;
+    if(cur==='up')   return -MAX*ease(Math.min(1,t/d));
+    if(cur==='hold') return -MAX;
+    if(cur==='down') return -MAX*(1-ease(Math.min(1,t/d)));
+    return 0;
+  }
+
+  /* ---------------- 静脈パネルの初期化 ---------------- */
+  const CX=150, TOP=26, BOT=378;
+  const cellsG=$('#cells'), arrowsG=$('#arrows');
+  const NS='http://www.w3.org/2000/svg';
+  const cells=[], arrows=[];
+  for(let i=0;i<22;i++){
+    const c=document.createElementNS(NS,'ellipse');
+    c.setAttribute('rx',7); c.setAttribute('ry',5);
+    c.setAttribute('fill','#d9536d'); c.setAttribute('opacity','.9');
+    cellsG.appendChild(c);
+    cells.push({el:c, y:TOP+Math.random()*(BOT-TOP), k:(Math.random()*2-1), ph:Math.random()*6.28});
+  }
+  for(let i=0;i<4;i++){
+    const a=document.createElementNS(NS,'path');
+    a.setAttribute('d','M -13 9 L 0 -6 L 13 9');
+    a.setAttribute('stroke','#ffffff'); a.setAttribute('stroke-width','5');
+    a.setAttribute('fill','none'); a.setAttribute('stroke-linecap','round'); a.setAttribute('stroke-linejoin','round');
+    arrowsG.appendChild(a);
+    arrows.push({el:a, y:TOP+i*90});
+  }
+  function leaflet(baseX, tipX, y){
+    const ty=y-28;
+    return `M ${baseX} ${y} C ${baseX+(tipX-baseX)*0.15} ${y-24} ${tipX-(tipX-baseX)*0.2} ${ty-2} ${tipX} ${ty}
+            C ${tipX-(tipX-baseX)*0.45} ${ty+13} ${baseX+(tipX-baseX)*0.55} ${y-9} ${baseX} ${y} Z`;
+  }
+  function buildValve(g,y){
+    const l=document.createElementNS(NS,'path'), r=document.createElementNS(NS,'path');
+    [l,r].forEach(p=>{p.setAttribute('fill','#8fc4ec');p.setAttribute('stroke','#2f7dc0');p.setAttribute('stroke-width','2.5');g.appendChild(p);});
+    return {l,r,y};
+  }
+  const valves=[buildValve($('#valveA'),148), buildValve($('#valveB'),268)];
+
+  /* ---------------- DOM 参照 ---------------- */
+  const footEl=$('#foot'), shinFlex=$('#shinFlex'), calf=$('#calfShade'),
+        moveA=$('#moveArrow'), backA=$('#backArrow'), flexBadge=$('#flexBadge'),
+        veinWall=$('#veinWall'), veinLumen=$('#veinLumen'), clipRect=$('#clipRect'),
+        mL=$('#muscleL'), mR=$('#muscleR'),
+        mLr=mL.querySelector('rect'), mRr=mR.querySelector('rect'),
+        keep=$('#keep'), keepSec=$('#keepSec'), ringArc=$('#ringArc'),
+        stepNum=$('#stepNum'), stepText=$('#stepText'), veinText=$('#veinText'),
+        repNow=$('#repNow'), repBar=$('#repBar'), stepEls=[...document.querySelectorAll('.step')];
+
+  const RING=2*Math.PI*46;
+  let valveOpen=0;
+
+  function onPhase(){
+    const p=PH[cur];
+    stepNum.textContent = p.step;
+    stepText.innerHTML  = p.text;
+    stepEls.forEach(el=>{
+      const s=+el.dataset.s;
+      el.classList.toggle('on', s===p.step || (cur==='prep' && s===2));
+    });
+    repNow.textContent = Math.min(rep,REPS);
+    repBar.style.width = (Math.min(rep,REPS)/REPS*100)+'%';
+    keep.classList.toggle('on', cur==='hold');
+  }
+
+  /* ---------------- 描画 ---------------- */
+  function draw(dt){
+    const a=angle(), c=Math.abs(a)/MAX;
+
+    /* 足の回転（すねの下に描いて関節のズレを隠す） */
+    footEl.setAttribute('transform', `translate(${-9*c},${1.5*c}) rotate(${a} 227 314)`);
+    shinFlex.setAttribute('opacity', c.toFixed(3));
+    calf.setAttribute('opacity', (c*.45).toFixed(3));
+    flexBadge.setAttribute('opacity', (c>.5 ? (c-.5)*2 : 0).toFixed(3));
+    moveA.setAttribute('opacity', cur==='up' ? '1' : (cur==='hold' ? '.35' : '0'));
+    backA.setAttribute('opacity', cur==='down' ? '1' : '0');
+
+    /* 筋肉：収縮で太く短く、静脈を圧迫 */
+    const mw=88+6*c, mh=320-32*c, my=40+16*c;
+    mLr.setAttribute('x',18+10*c); mLr.setAttribute('width',mw); mLr.setAttribute('y',my); mLr.setAttribute('height',mh);
+    mRr.setAttribute('x',194-16*c); mRr.setAttribute('width',mw); mRr.setAttribute('y',my); mRr.setAttribute('height',mh);
+    const mc = `rgb(${Math.round(234-25*c)},${Math.round(162-60*c)},${Math.round(169-60*c)})`;
+    mLr.setAttribute('fill',mc); mRr.setAttribute('fill',mc);
+
+    /* 静脈の内腔（圧迫で細くなる） */
+    const lh=26-10*c, wh=lh+7;
+    veinWall.setAttribute('x',CX-wh); veinWall.setAttribute('width',wh*2); veinWall.setAttribute('rx',wh);
+    veinLumen.setAttribute('x',CX-lh); veinLumen.setAttribute('width',lh*2); veinLumen.setAttribute('rx',lh);
+    clipRect.setAttribute('x',CX-lh); clipRect.setAttribute('width',lh*2); clipRect.setAttribute('rx',lh);
+
+    /* 弁の開閉 */
+    const target = cur==='up' ? 1 : (cur==='hold' ? Math.max(0,1-t/1.6) : 0);
+    valveOpen += (target-valveOpen)*Math.min(1,dt*6);
+    valves.forEach(v=>{
+      const bx=CX-wh+2, tipL=CX-2-14*valveOpen;
+      v.l.setAttribute('d', leaflet(bx, tipL, v.y));
+      v.r.setAttribute('d', leaflet(CX+wh-2, CX+2+14*valveOpen, v.y));
+    });
+
+    /* 血流 */
+    let flow;
+    if(cur==='up')        flow = 40+300*c;
+    else if(cur==='hold') flow = Math.max(10, 190*(1-t/PH.hold.dur));
+    else if(cur==='down') flow = 22;
+    else                  flow = 10;
+
+    const now=performance.now()/1000;
+    cells.forEach(p=>{
+      p.y -= flow*dt;
+      if(p.y < TOP-8){ p.y = BOT+8; p.k = Math.random()*2-1; }
+      const x = CX + p.k*Math.max(2,(lh-9)) + Math.sin(now*1.7+p.ph)*1.6;
+      p.el.setAttribute('cx',x.toFixed(1)); p.el.setAttribute('cy',p.y.toFixed(1));
+    });
+    const aop = Math.min(.85, flow/220);
+    arrows.forEach(p=>{
+      p.y -= flow*dt*1.15;
+      if(p.y < TOP-14) p.y = BOT+14;
+      p.el.setAttribute('transform',`translate(${CX} ${p.y.toFixed(1)}) scale(${(0.6+0.4*(lh/26)).toFixed(2)})`);
+      p.el.setAttribute('opacity', aop.toFixed(2));
+    });
+
+    /* 体内パネルの説明文 */
+    const flexing = c>.35;
+    const msg = flexing
+      ? '筋肉が収縮し、<i>静脈弁が開いて</i><b>血液が心臓へ押し戻されます</b>'
+      : '筋肉がゆるみ、<i>静脈弁が閉じて</i>血液の逆流を防ぎます';
+    if(veinText.innerHTML!==msg) veinText.innerHTML=msg;
+
+    /* キープ表示 */
+    if(cur==='hold'){
+      const r=Math.max(0,PH.hold.dur-t);
+      keepSec.textContent = Math.ceil(r);
+      ringArc.setAttribute('stroke-dashoffset', (RING*(t/PH.hold.dur)).toFixed(1));
+    }
+  }
+
+  /* ---------------- ループ ---------------- */
+  function frame(ts){
+    if(!last) last=ts;
+    let dt=(ts-last)/1000; last=ts;
+    dt=Math.min(dt,0.05);
+    if(playing){
+      t += dt*speed;
+      if(t >= PH[cur].dur) advance();
+      draw(dt*speed);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------------- 操作 ---------------- */
+  const btnPlay=$('#btnPlay'), btnSpeed=$('#btnSpeed');
+  const SPEEDS=[1,0.75,1.5];
+  let si=0;
+  function setPlay(v){ playing=v; btnPlay.textContent = v?'一時停止':'再生'; }
+  btnPlay.addEventListener('click',()=>setPlay(!playing));
+  btnSpeed.addEventListener('click',()=>{
+    si=(si+1)%SPEEDS.length; speed=SPEEDS[si];
+    btnSpeed.textContent='速度 ×'+speed.toFixed(1);
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.code==='Space'){ e.preventDefault(); setPlay(!playing); }
+  });
+
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    cur='hold'; t=0; setPlay(false);
+  }
+  onPhase(); draw(0);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
