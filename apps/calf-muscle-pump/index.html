@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<!--
+  App: calf-muscle-pump
+  Created: 2026-08-18
+  Description: 「第二の心臓」と呼ばれるふくらはぎの筋ポンプ作用を説明するアニメーション。筋肉の収縮・弛緩に合わせた静脈弁の開閉と血流の押し上げを4段階のキャプション付きで表示し、自動ループ再生する。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ふくらはぎは第二の心臓｜下腿の筋ポンプ作用</title>
+<style>
+  :root{
+    --bg:#E9EFF4; --stage:#FBFDFE; --ink:#16202E; --muted:#5C6B7B;
+    --muscle1:#C6432F; --muscle2:#7C231A; --muscleFiber:#E88A72;
+    --vein1:#3E73A4; --vein2:#254E77; --veinEdge:#1C3C5C;
+    --blood:#FF6A55; --valve:#F6F0E2; --valveEdge:#33465A;
+    --accent:#0E9A98; --accentDeep:#0A6E6D; --heart:#D6495B;
+    --line:#D5DEE6;
+    --font:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','YuGothic','Noto Sans JP','Meiryo',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--font);
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px 16px; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:100%; max-width:860px}
+  header{margin:0 0 14px 2px}
+  .eyebrow{
+    display:inline-block; font-size:12.5px; letter-spacing:.14em; font-weight:700;
+    color:var(--accentDeep); background:#D5F0EE; padding:4px 11px; border-radius:999px;
+  }
+  h1{font-size:clamp(22px,4.6vw,32px); line-height:1.25; margin:12px 0 4px; font-weight:800; letter-spacing:.01em}
+  .sub{color:var(--muted); font-size:clamp(13px,2.6vw,15px); margin:0}
+
+  .card{
+    background:var(--stage); border:1px solid var(--line); border-radius:20px;
+    box-shadow:0 18px 40px -24px rgba(20,40,70,.35); overflow:hidden;
+  }
+  .stage{display:block; width:100%; height:auto; background:
+     radial-gradient(120% 90% at 50% 0%, #FFFFFF 0%, #F4F8FB 60%, #EBF1F6 100%);}
+
+  /* caption + controls */
+  .panel{padding:16px 18px 18px; border-top:1px solid var(--line)}
+  .cap-eyebrow{font-size:12px; font-weight:800; letter-spacing:.1em; color:var(--accentDeep); margin-bottom:6px}
+  .caption{font-size:clamp(15px,3vw,18px); line-height:1.7; min-height:3.6em; font-weight:600}
+  .caption b{color:var(--muscle1)}
+  .caption .up{color:var(--accentDeep)}
+
+  .progress{display:flex; gap:6px; margin:14px 0 12px}
+  .seg{height:5px; flex:1; background:#E3EAF0; border-radius:99px; overflow:hidden}
+  .seg > i{display:block; height:100%; width:0%; background:var(--accent); border-radius:99px}
+
+  .controls{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  button{font-family:inherit; cursor:pointer; border:none}
+  .btn{
+    display:inline-flex; align-items:center; gap:7px; font-size:14px; font-weight:700;
+    padding:9px 15px; border-radius:999px; background:#fff; color:var(--ink);
+    border:1.5px solid var(--line);
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accentDeep)}
+  .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .btn.primary:hover{background:var(--accentDeep); color:#fff}
+  .btn:focus-visible{outline:3px solid #8FD6D3; outline-offset:2px}
+  .spacer{flex:1}
+  .speed{display:inline-flex; gap:4px; background:#EEF3F7; padding:4px; border-radius:999px}
+  .speed button{font-size:12.5px; font-weight:700; padding:6px 11px; border-radius:999px; background:transparent; color:var(--muted)}
+  .speed button[aria-pressed="true"]{background:#fff; color:var(--accentDeep); box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+  .legend{display:flex; gap:16px; flex-wrap:wrap; margin:14px 2px 0; font-size:12.5px; color:var(--muted)}
+  .legend span{display:inline-flex; align-items:center; gap:7px}
+  .dot{width:12px; height:12px; border-radius:4px; display:inline-block}
+  .foot{font-size:11.5px; color:var(--muted); margin:10px 2px 0; line-height:1.5}
+
+  @media (max-width:560px){ .panel{padding:14px} .btn{padding:8px 13px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">下腿の筋ポンプ作用</span>
+    <h1>ふくらはぎは「第二の心臓」</h1>
+    <p class="sub">脚の血液を、重力に逆らって心臓へ送り返すしくみ</p>
+  </header>
+
+  <div class="card">
+    <svg class="stage" viewBox="0 0 440 560" role="img"
+         aria-label="ふくらはぎの筋肉が収縮・弛緩して静脈の血液を上へ押し上げるアニメーション">
+      <defs>
+        <linearGradient id="gMuscle" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#D9553F"/><stop offset=".55" stop-color="#C6432F"/><stop offset="1" stop-color="#7C231A"/>
+        </linearGradient>
+        <linearGradient id="gMuscleR" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0" stop-color="#D9553F"/><stop offset=".55" stop-color="#C6432F"/><stop offset="1" stop-color="#7C231A"/>
+        </linearGradient>
+        <linearGradient id="gVein" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#4A80B0"/><stop offset=".5" stop-color="#3E73A4"/><stop offset="1" stop-color="#2C577F"/>
+        </linearGradient>
+        <radialGradient id="gBlood" cx="35%" cy="30%" r="75%">
+          <stop offset="0" stop-color="#FF9C8C"/><stop offset="1" stop-color="#F0503A"/>
+        </radialGradient>
+        <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#123" flood-opacity="0.18"/>
+        </filter>
+      </defs>
+
+      <!-- heart target -->
+      <g id="heart" transform="translate(220 44)">
+        <path d="M0 14 C -13 -6 -34 3 -20 20 C -12 30 0 38 0 40 C 0 38 12 30 20 20 C 34 3 13 -6 0 14 Z"
+              fill="var(--heart)" filter="url(#soft)"/>
+      </g>
+      <text x="220" y="12" text-anchor="middle" font-size="13" font-weight="800" fill="var(--accentDeep)">心臓へ</text>
+      <path id="upArrow" d="M220 74 L220 92 M213 82 L220 74 L227 82" fill="none"
+            stroke="var(--accentDeep)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <!-- gravity hint -->
+      <g opacity="0.75">
+        <path d="M32 250 L32 320 M25 310 L32 320 L39 310" fill="none" stroke="#8AA0B4" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="32" y="240" text-anchor="middle" font-size="12" fill="#7B8EA0" font-weight="700">重力</text>
+      </g>
+
+      <!-- MUSCLES -->
+      <g id="muscleL">
+        <ellipse cx="120" cy="300" rx="42" ry="152" fill="url(#gMuscle)" filter="url(#soft)"/>
+        <path d="M120 158 C 150 210 150 390 120 442" fill="none" stroke="var(--muscleFiber)" stroke-width="2" opacity=".5"/>
+        <path d="M104 168 C 128 220 128 380 104 432" fill="none" stroke="var(--muscleFiber)" stroke-width="1.6" opacity=".4"/>
+        <path d="M136 168 C 160 220 160 380 136 432" fill="none" stroke="var(--muscleFiber)" stroke-width="1.6" opacity=".4"/>
+      </g>
+      <g id="muscleR">
+        <ellipse cx="320" cy="300" rx="42" ry="152" fill="url(#gMuscleR)" filter="url(#soft)"/>
+        <path d="M320 158 C 290 210 290 390 320 442" fill="none" stroke="var(--muscleFiber)" stroke-width="2" opacity=".5"/>
+        <path d="M336 168 C 312 220 312 380 336 432" fill="none" stroke="var(--muscleFiber)" stroke-width="1.6" opacity=".4"/>
+        <path d="M304 168 C 280 220 280 380 304 432" fill="none" stroke="var(--muscleFiber)" stroke-width="1.6" opacity=".4"/>
+      </g>
+
+      <!-- VEIN -->
+      <rect x="186" y="92" width="68" height="384" rx="22" fill="url(#gVein)" stroke="var(--veinEdge)" stroke-width="2"/>
+      <!-- blood dots -->
+      <clipPath id="veinClip"><rect x="188" y="94" width="64" height="380" rx="20"/></clipPath>
+      <g id="dots" clip-path="url(#veinClip)"></g>
+
+      <!-- valves (drawn over the vein) -->
+      <g id="valveUp"></g>
+      <g id="valveLo"></g>
+
+      <!-- live phase chip -->
+      <g id="chip" transform="translate(220 512)">
+        <rect id="chipBg" x="-70" y="-19" width="140" height="38" rx="19" fill="#EAF3F1" stroke="#CBE3DF"/>
+        <text id="chipTxt" x="0" y="6" text-anchor="middle" font-size="17" font-weight="800" fill="var(--accentDeep)">準備</text>
+      </g>
+    </svg>
+
+    <div class="panel">
+      <div class="cap-eyebrow" id="capNo">STEP 1 / 4</div>
+      <div class="caption" id="caption"></div>
+
+      <div class="progress" aria-hidden="true">
+        <div class="seg"><i id="p0"></i></div><div class="seg"><i id="p1"></i></div>
+        <div class="seg"><i id="p2"></i></div><div class="seg"><i id="p3"></i></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn primary" id="play" aria-label="一時停止">
+          <span id="playIcon">⏸</span><span id="playLabel">一時停止</span>
+        </button>
+        <button class="btn" id="restart">↺ 最初から</button>
+        <div class="spacer"></div>
+        <div class="speed" role="group" aria-label="再生速度">
+          <button data-s="0.75">0.75x</button>
+          <button data-s="1" aria-pressed="true">1x</button>
+          <button data-s="1.25">1.25x</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--muscle1)"></i>ふくらはぎの筋肉</span>
+    <span><i class="dot" style="background:var(--vein1)"></i>静脈</span>
+    <span><i class="dot" style="background:var(--blood)"></i>血液の流れ</span>
+    <span><i class="dot" style="background:var(--valve);border:1px solid var(--valveEdge)"></i>一方向弁</span>
+  </div>
+  <p class="foot">※ 患者さん向けの説明用イメージです。弁の数や血管の構造は分かりやすく簡略化しています。</p>
+</div>
+
+<script>
+(function(){
+  const SVGNS="http://www.w3.org/2000/svg";
+  const $=id=>document.getElementById(id);
+  const CX=220, XL=190, XR=250;              // vein center & inner walls for dots
+  const Y_TOP=100, Y_BOT=470;
+  const yUp=176, yLo=392;                      // valve heights
+  const CYCLE=3000;                            // one contract+relax (ms)
+  const LOOP=18000, SCENE=LOOP/4;              // caption timeline
+
+  const captions=[
+    '脚の血液は、<span class="up">重力に逆らって</span>心臓まで上らなければなりません。その動力になるのが、<b>ふくらはぎの筋肉</b>です。',
+    '<b>収縮</b>：筋肉が縮むと静脈をギュッと圧迫し、血液を<span class="up">上へ押し上げます</span>。同時に下の弁が閉じ、血液の逆流を防ぎます。',
+    '<b>弛緩</b>：筋肉がゆるむと上の弁が閉じ、押し上げた血液は下がりません。その間に、下から新しい血液が満ちていきます。',
+    'このポンプは<span class="up">歩く・つま先立ちなど、動くたびに働きます</span>。むくみ・血栓・静脈瘤の予防につながります。'
+  ];
+
+  // smootherstep
+  const ss=t=>{t=Math.max(0,Math.min(1,t));return t*t*t*(t*(t*6-15)+10);};
+
+  // ---- build blood dots ----
+  const dotsG=$('dots'); const dots=[];
+  for(let i=0;i<14;i++){
+    const c=document.createElementNS(SVGNS,'circle');
+    c.setAttribute('r', 4.2);
+    c.setAttribute('fill','url(#gBlood)');
+    dotsG.appendChild(c);
+    dots.push({x:XL+6+Math.random()*(XR-XL-12), y:Y_TOP+Math.random()*(Y_BOT-Y_TOP), el:c});
+  }
+  function drawDots(){ for(const d of dots){ d.el.setAttribute('cx',d.x.toFixed(1)); d.el.setAttribute('cy',d.y.toFixed(1)); } }
+
+  // ---- valve builder: two leaflets, closed=0..1 ----
+  function buildValve(g, yv){
+    g.innerHTML='';
+    const mk=()=>{const p=document.createElementNS(SVGNS,'path');
+      p.setAttribute('fill','var(--valve)');p.setAttribute('stroke','var(--valveEdge)');
+      p.setAttribute('stroke-width','1.4');p.setAttribute('stroke-linejoin','round');g.appendChild(p);return p;};
+    return {L:mk(), R:mk(), yv};
+  }
+  function updateValve(v, closed){
+    const attachY=v.yv-13, tipY=v.yv+7;
+    // left leaflet
+    const lAttachX=XL, lTip=(XL+7)+((CX)-(XL+7))*closed;
+    const lCtrlX=(lAttachX+lTip)/2 + (CX-lAttachX)*0.22*closed, lCtrlY=(attachY+tipY)/2;
+    v.L.setAttribute('d',`M ${lAttachX} ${attachY} Q ${lCtrlX} ${lCtrlY} ${lTip} ${tipY} L ${lTip} ${tipY+3} Q ${lCtrlX} ${lCtrlY+3} ${lAttachX} ${attachY+4} Z`);
+    // right leaflet (mirror about CX)
+    const rAttachX=XR, rTip=2*CX-lTip;
+    const rCtrlX=2*CX-lCtrlX;
+    v.R.setAttribute('d',`M ${rAttachX} ${attachY} Q ${rCtrlX} ${lCtrlY} ${rTip} ${tipY} L ${rTip} ${tipY+3} Q ${rCtrlX} ${lCtrlY+3} ${rAttachX} ${attachY+4} Z`);
+    const closedFill = closed>0.6 ? '#EDE4CE' : 'var(--valve)';
+    v.L.setAttribute('fill',closedFill); v.R.setAttribute('fill',closedFill);
+  }
+  const vUp=buildValve($('valveUp'),yUp), vLo=buildValve($('valveLo'),yLo);
+
+  // ---- muscle transform about own center ----
+  function muscle(el, cx, cy, s, inX){
+    el.setAttribute('transform',
+      `translate(${inX} 0) translate(${cx} ${cy}) scale(${s}) translate(${-cx} ${-cy})`);
+  }
+
+  // ---- state ----
+  let T=0, playing=true, speed=1, last=performance.now();
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(reduce){ playing=false; setPlayUI(false); }
+
+  function setPlayUI(on){
+    $('playIcon').textContent = on?'⏸':'▶';
+    $('playLabel').textContent = on?'一時停止':'再生';
+    $('play').setAttribute('aria-label', on?'一時停止':'再生');
+  }
+
+  function render(dtV){
+    // pump contraction 0..1 (peak at mid-cycle)
+    const raw=(T%CYCLE)/CYCLE;
+    const u = raw<0.5 ? raw/0.5 : 1-(raw-0.5)/0.5;
+    const c = ss(u);
+
+    // muscles bulge inward on contraction
+    muscle($('muscleL'),120,300, 1+0.07*c,  22*c);
+    muscle($('muscleR'),320,300, 1+0.07*c, -22*c);
+
+    // valves: lower closes during contraction, upper closes during relaxation
+    updateValve(vLo, c);
+    updateValve(vUp, 1-c);
+
+    // heart beat + arrow emphasis on contraction
+    $('heart').setAttribute('transform',`translate(220 44) scale(${(1+0.10*c).toFixed(3)})`);
+    $('upArrow').setAttribute('opacity',(0.35+0.65*c).toFixed(2));
+
+    // blood dots move up; faster during contraction
+    const v = 14 + 120*c;                 // px/s
+    for(const d of dots){
+      d.y -= v*dtV;
+      if(d.y < Y_TOP-6){ d.y = Y_BOT+Math.random()*24; d.x = XL+6+Math.random()*(XR-XL-12); }
+    }
+    drawDots();
+
+    // live phase chip
+    const contracting = raw<0.5;
+    const chipTxt=$('chipTxt'), chipBg=$('chipBg');
+    if(contracting){ chipTxt.textContent='収縮：血液を上へ'; chipTxt.setAttribute('fill','#B23A2E');
+      chipBg.setAttribute('fill','#FBEAE6'); chipBg.setAttribute('stroke','#F0C9C0'); chipBg.setAttribute('width','188'); chipBg.setAttribute('x','-94'); }
+    else{ chipTxt.textContent='弛緩：下から補充'; chipTxt.setAttribute('fill','var(--accentDeep)');
+      chipBg.setAttribute('fill','#E6F4F1'); chipBg.setAttribute('stroke','#C4E4DE'); chipBg.setAttribute('width','188'); chipBg.setAttribute('x','-94'); }
+
+    // caption timeline + progress
+    const st=T%LOOP; const scene=Math.floor(st/SCENE);
+    if($('caption').dataset.scene!=String(scene)){
+      $('caption').dataset.scene=String(scene);
+      $('caption').innerHTML=captions[scene];
+      $('capNo').textContent='STEP '+(scene+1)+' / 4';
+    }
+    for(let i=0;i<4;i++){
+      const fill = i<scene?100 : i>scene?0 : ((st%SCENE)/SCENE*100);
+      $('p'+i).style.width=fill+'%';
+    }
+  }
+
+  function frame(now){
+    const realDt=now-last; last=now;
+    let dtV=0;
+    if(playing){ T+=realDt*speed; dtV=realDt*speed/1000; }
+    render(dtV);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- controls ----
+  $('play').addEventListener('click',()=>{ playing=!playing; setPlayUI(playing); });
+  $('restart').addEventListener('click',()=>{ T=0; if(!playing){ playing=true; setPlayUI(true);} });
+  document.querySelectorAll('.speed button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      speed=parseFloat(b.dataset.s);
+      document.querySelectorAll('.speed button').forEach(x=>x.setAttribute('aria-pressed', x===b?'true':'false'));
+    });
+  });
+  // keyboard: space toggles play
+  document.addEventListener('keydown',e=>{
+    if(e.code==='Space' && !/input|button|select/i.test(e.target.tagName)){ e.preventDefault(); $('play').click(); }
+  });
+})();
+</script>
+</body>
+</html>
