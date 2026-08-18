@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<!--
+  App: varicose-vein-mechanism
+  Created: 2026-08-18
+  Description: 下肢静脈瘤ができるしくみを患者向けに説明するステップ式アニメーション。静脈弁の機能低下から血液の逆流・うっ滞、瘤の形成までをシーンごとのナレーション付きで順を追って表示する。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>静脈瘤ができるしくみ</title>
+<style>
+  :root{
+    --ink:#16283d;
+    --ink-soft:#41546b;
+    --paper:#ffffff;
+    --bg1:#e9f0f7;
+    --bg2:#dbe6f2;
+    --vein:#2e63c4;
+    --vein-edge:#1c3f7d;
+    --vein-closed:#9aa6b4;
+    --blood:#d24a3c;
+    --up:#1a9e6c;
+    --down:#e23b3b;
+    --warn:#e23b3b;
+    --sfj:#f4c430;
+    --line:#c7d5e6;
+    --shadow:0 12px 40px rgba(23,50,86,.14);
+    --jp:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","YuGothic","Noto Sans JP","Meiryo",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:var(--jp);
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #f3f8ff 0%, transparent 60%),
+      linear-gradient(160deg,var(--bg1),var(--bg2));
+    min-height:100%;
+    display:flex;justify-content:center;
+    padding:22px 16px 32px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{width:100%;max-width:1000px}
+  header.top{margin:2px 4px 16px}
+  .kicker{
+    font-size:13px;letter-spacing:.22em;color:#5b78a6;font-weight:700;
+    display:flex;align-items:center;gap:8px;text-transform:none;
+  }
+  .kicker::before{content:"";width:26px;height:2px;background:#7aa0d8;border-radius:2px}
+  h1{
+    font-size:clamp(22px,3.4vw,32px);line-height:1.2;margin:6px 0 0;
+    font-weight:800;letter-spacing:.01em;
+  }
+  h1 .accent{color:var(--vein)}
+
+  /* stepper */
+  .steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 4px 14px}
+  .step{
+    display:flex;align-items:center;gap:8px;
+    padding:8px 13px;border-radius:999px;
+    background:#ffffff;border:1.5px solid var(--line);
+    color:var(--ink-soft);font-weight:700;font-size:13.5px;
+    cursor:pointer;transition:.25s;user-select:none;white-space:nowrap;
+  }
+  .step .num{
+    width:22px;height:22px;border-radius:50%;
+    display:grid;place-items:center;font-size:12px;
+    background:#eef3fa;color:#5b78a6;transition:.25s;
+  }
+  .step:hover{border-color:#9ab6e0}
+  .step.active{background:var(--vein);border-color:var(--vein);color:#fff;box-shadow:0 6px 18px rgba(46,99,196,.32)}
+  .step.active .num{background:rgba(255,255,255,.25);color:#fff}
+  .step.done .num{background:var(--up);color:#fff}
+
+  /* main layout */
+  .stage-wrap{
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);
+    gap:20px;background:var(--paper);border-radius:22px;
+    box-shadow:var(--shadow);padding:20px;
+  }
+  .stage{
+    position:relative;background:linear-gradient(180deg,#f7fafe,#eef4fb);
+    border-radius:16px;overflow:hidden;border:1px solid #e2ebf6;
+  }
+  .stage svg{display:block;width:100%;height:auto}
+
+  /* narration */
+  .talk{display:flex;flex-direction:column;justify-content:center;padding:6px 6px 6px 4px}
+  .talk .scene-tag{
+    display:inline-flex;align-items:center;gap:9px;font-weight:800;
+    font-size:14px;color:var(--vein);margin-bottom:10px;
+  }
+  .talk .scene-tag .dot{width:10px;height:10px;border-radius:50%;background:var(--vein)}
+  .talk h2{font-size:clamp(19px,2.6vw,25px);margin:0 0 14px;line-height:1.25;font-weight:800}
+  .talk p{font-size:clamp(15px,1.9vw,17.5px);line-height:1.85;color:var(--ink-soft);margin:0}
+  .talk .fade{animation:rise .5s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  /* scene progress */
+  .track{height:5px;background:#e7eef7;border-radius:4px;margin:16px 4px 0;overflow:hidden}
+  .track > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#4f86e0,#2e63c4);border-radius:4px}
+
+  /* controls */
+  .controls{display:flex;align-items:center;justify-content:center;gap:12px;margin:16px 4px 0}
+  .btn{
+    border:none;cursor:pointer;font-family:inherit;font-weight:700;
+    border-radius:12px;transition:.2s;display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.ghost{
+    background:#fff;border:1.5px solid var(--line);color:var(--ink-soft);
+    padding:11px 16px;font-size:14.5px;
+  }
+  .btn.ghost:hover{border-color:#9ab6e0;color:var(--ink)}
+  .btn.ghost:disabled{opacity:.4;cursor:default}
+  .btn.primary{
+    background:var(--vein);color:#fff;padding:12px 26px;font-size:15.5px;
+    box-shadow:0 8px 20px rgba(46,99,196,.3);
+  }
+  .btn.primary:hover{background:#2a5ab4}
+  .btn svg{width:17px;height:17px;fill:currentColor}
+
+  .hint{text-align:center;color:#8296ad;font-size:12.5px;margin:12px 4px 0}
+
+  @media (max-width:760px){
+    .stage-wrap{grid-template-columns:1fr;gap:14px;padding:14px}
+    .talk{padding:2px}
+    .talk p{line-height:1.8}
+    .step{font-size:12.5px;padding:7px 11px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .talk .fade{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="kicker">こうち静脈ケアクリニック</div>
+    <h1>静脈瘤（りゅう）が<span class="accent">できるしくみ</span></h1>
+  </header>
+
+  <nav class="steps" id="steps"></nav>
+
+  <div class="stage-wrap">
+    <div class="stage">
+      <svg id="scene" viewBox="0 0 500 690" role="img" aria-label="静脈の血流アニメーション">
+        <defs>
+          <radialGradient id="glowY" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffe884" stop-opacity=".85"/>
+            <stop offset="60%" stop-color="#f4c430" stop-opacity=".35"/>
+            <stop offset="100%" stop-color="#f4c430" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="veinGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#3a72d6"/>
+            <stop offset="1" stop-color="#274f9f"/>
+          </linearGradient>
+          <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="3"/>
+          </filter>
+          <filter id="laserGlow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="4"/>
+          </filter>
+        </defs>
+
+        <!-- direction / orientation labels -->
+        <g font-family="var(--jp)" font-weight="700">
+          <g id="lblHead">
+            <text x="250" y="24" text-anchor="middle" font-size="17" fill="#16283d">頭側（心臓へ）</text>
+            <path d="M250 30 l9 12 h-18 z" fill="#16283d"/>
+          </g>
+          <g id="lblFoot">
+            <path d="M250 664 l9 -12 h-18 z" fill="#16283d"/>
+            <text x="250" y="682" text-anchor="middle" font-size="17" fill="#16283d">足先</text>
+          </g>
+          <text x="150" y="52" text-anchor="middle" font-size="15" fill="#3a5170">表在静脈</text>
+          <text x="150" y="70" text-anchor="middle" font-size="11.5" fill="#7c8ea8">（皮ふに近い）</text>
+          <text x="350" y="52" text-anchor="middle" font-size="15" fill="#3a5170">深部静脈</text>
+          <text x="350" y="70" text-anchor="middle" font-size="11.5" fill="#7c8ea8">（体の深く）</text>
+        </g>
+
+        <!-- vein walls -->
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <!-- deep vein -->
+          <path d="M 350 78 L 350 585 Q 350 628 305 636 L 250 640" stroke="var(--vein-edge)" stroke-width="40"/>
+          <path id="deepWall" d="M 350 78 L 350 585 Q 350 628 305 636 L 250 640" stroke="url(#veinGrad)" stroke-width="34"/>
+          <!-- superficial vein -->
+          <path d="M 350 116 C 305 88 215 86 172 116 C 152 132 150 160 150 192 L 150 585 Q 150 628 200 637 L 250 640" stroke="var(--vein-edge)" stroke-width="34"/>
+          <path id="supWall" d="M 350 116 C 305 88 215 86 172 116 C 152 132 150 160 150 192 L 150 585 Q 150 628 200 637 L 250 640" stroke="url(#veinGrad)" stroke-width="28"/>
+        </g>
+
+        <!-- bulges (varicose) -->
+        <g id="bulges"></g>
+
+        <!-- hidden guide paths for particles -->
+        <g fill="none" stroke="none">
+          <path id="gDeepUp"  d="M 250 640 L 305 636 Q 350 628 350 585 L 350 78"/>
+          <path id="gSupUp"   d="M 250 640 L 200 637 Q 150 628 150 585 L 150 192 C 150 160 152 132 172 116 C 215 86 305 88 350 116 L 350 82"/>
+          <path id="gReflux"  d="M 350 116 C 305 88 215 86 172 116 C 152 132 150 160 150 192 L 150 585 Q 150 628 200 637 L 250 640"/>
+        </g>
+
+        <!-- yellow highlight (broken valve zone) -->
+        <g id="sfjHi" opacity="0">
+          <circle cx="170" cy="132" r="60" fill="url(#glowY)"/>
+          <circle cx="170" cy="132" r="46" fill="none" stroke="var(--sfj)" stroke-width="4"/>
+        </g>
+
+        <!-- laser fiber (EVLA) -->
+        <g id="laser" opacity="0">
+          <path id="laserLine" d="M 172 116 C 152 132 150 160 150 192 L 150 560" fill="none"
+                stroke="#ff5a3c" stroke-width="6" stroke-linecap="round" filter="url(#laserGlow)"/>
+          <path d="M 172 116 C 152 132 150 160 150 192 L 150 560" fill="none"
+                stroke="#fff4c0" stroke-opacity="0.7" stroke-width="2.5" stroke-linecap="round"/>
+          <circle id="laserTip" cx="150" cy="560" r="9" fill="#fff4c0" filter="url(#laserGlow)"/>
+        </g>
+
+        <!-- particles -->
+        <g id="particles"></g>
+
+        <!-- valves -->
+        <g id="valves"></g>
+
+        <!-- flow-direction arrows -->
+        <g id="arrows"></g>
+      </svg>
+    </div>
+
+    <div class="talk">
+      <span class="scene-tag"><span class="dot"></span><span id="tagText">正常な流れ</span></span>
+      <h2 id="title"></h2>
+      <p id="body"></p>
+      <div class="track"><i id="prog"></i></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="prev" aria-label="前へ">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7z"/></svg>前へ
+    </button>
+    <button class="btn primary" id="play" aria-label="再生・一時停止">
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <span id="playText">再生</span>
+    </button>
+    <button class="btn ghost" id="next" aria-label="次へ">
+      次へ<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7z"/></svg>
+    </button>
+    <button class="btn ghost" id="restart" aria-label="最初から">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 11-5 5H5a7 7 0 107-7z"/></svg>最初から
+    </button>
+  </div>
+  <div class="hint">画面をタップ／クリックで一時停止・再生できます。上の番号を押すと各段階に移動します。</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const SVGNS="http://www.w3.org/2000/svg";
+  const reduced = window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+
+  // ---- geometry ----
+  const VALVES = [
+    {vein:"sfj",  cx:150, cy:180, hw:12},   // 合流部（黄色の弁）＝最重要
+    {vein:"sup",  cx:150, cy:320, hw:12},
+    {vein:"sup",  cx:150, cy:470, hw:12},
+    {vein:"deep", cx:350, cy:190, hw:15},
+    {vein:"deep", cx:350, cy:350, hw:15},
+    {vein:"deep", cx:350, cy:505, hw:15},
+  ];
+  const BULGES = [
+    {cx:127, cy:360, rx:26, ry:34},
+    {cx:122, cy:435, rx:29, ry:38},
+    {cx:128, cy:512, rx:25, ry:33},
+  ];
+
+  // ---- scenes ----
+  const SCENES = [
+    { tag:"正常な流れ", title:"健康な足の血液の流れ",
+      body:"足の血液は、重力に逆らって心臓（頭側）へ戻ります。血管の中にある「弁（べん）」が扉のように開いて血液を上へ通し、閉じることで血液が下へ逆戻りしないよう防いでいます。",
+      flow:"up", valve:"work", sfj:false, bulge:false, laser:false },
+    { tag:"弁が壊れる", title:"合流部の弁が閉じなくなる",
+      body:"足の付け根（黄色の部分）にある弁が壊れて、閉じなくなることがあります。扉が開きっぱなしになった状態です。ここが静脈瘤の始まりです。",
+      flow:"up", valve:"sfj-broken", sfj:true, bulge:false, laser:false },
+    { tag:"血液の逆流", title:"血液が足先へ逆流する",
+      body:"閉じない弁のすきまから、血液が表在静脈（皮ふに近い静脈）を伝って足先へ逆流します。本来は心臓へ戻るはずの血液が、下へたまっていきます。",
+      flow:"reflux", valve:"sup-broken", sfj:true, bulge:false, laser:false },
+    { tag:"静脈瘤（こぶ）", title:"血管がふくらんでこぶになる",
+      body:"逆流した血液がたまると、表在静脈がふくらみ、ボコボコとしたこぶ（静脈瘤）になります。足のだるさ・むくみ・かゆみ・こむら返りの原因になります。",
+      flow:"reflux", valve:"sup-broken", sfj:true, bulge:true, laser:false },
+    { tag:"レーザー治療", title:"レーザーで逆流を止める",
+      body:"治療では、逆流している表在静脈をレーザーで内側から閉じます。血液は正常な深部静脈を通って心臓へ戻るようになり、逆流とこぶが少しずつ改善します。",
+      flow:"treated", valve:"work", sfj:false, bulge:false, laser:true },
+  ];
+  const DUR = 9.5; // 各シーンの自動再生秒数
+
+  // ---- dom ----
+  const svg = document.getElementById("scene");
+  const $ = id => document.getElementById(id);
+  const gDeep = $("gDeepUp"), gSup = $("gSupUp"), gRef = $("gReflux");
+  const LEN = { deep:gDeep.getTotalLength(), sup:gSup.getTotalLength(), ref:gRef.getTotalLength() };
+
+  // build particles
+  const partsG = $("particles");
+  function makeParticles(guide, count, r){
+    const arr=[];
+    for(let i=0;i<count;i++){
+      const c=document.createElementNS(SVGNS,"circle");
+      c.setAttribute("r",r); c.setAttribute("fill","var(--blood)");
+      c.setAttribute("opacity","0"); partsG.appendChild(c);
+      arr.push({el:c, off:(i/count)});
+    }
+    return {guide, len: guide==="deep"?LEN.deep:guide==="sup"?LEN.sup:LEN.ref, items:arr};
+  }
+  const P = {
+    deep: makeParticles("deep", 11, 5.5),
+    sup:  makeParticles("sup", 11, 5),
+    ref:  makeParticles("ref", 13, 5),
+  };
+
+  // build valves
+  const valvesG=$("valves");
+  VALVES.forEach(v=>{
+    const g=document.createElementNS(SVGNS,"g");
+    const L=document.createElementNS(SVGNS,"path");
+    const R=document.createElementNS(SVGNS,"path");
+    [L,R].forEach(p=>{p.setAttribute("stroke","var(--vein-edge)");p.setAttribute("stroke-width","1.5");});
+    g.appendChild(L);g.appendChild(R);valvesG.appendChild(g);
+    v.el={g,L,R};
+  });
+
+  // build bulges
+  const bulgesG=$("bulges");
+  BULGES.forEach(b=>{
+    const e=document.createElementNS(SVGNS,"ellipse");
+    e.setAttribute("cx",b.cx);e.setAttribute("cy",b.cy);
+    e.setAttribute("fill","url(#veinGrad)");
+    e.setAttribute("stroke","var(--vein-edge)");e.setAttribute("stroke-width","3");
+    bulgesG.appendChild(e); b.el=e;
+  });
+
+  // arrows
+  const arrowsG=$("arrows");
+  function arrow(x,y){
+    const g=document.createElementNS(SVGNS,"g");
+    const p=document.createElementNS(SVGNS,"path");
+    // upward arrow centered at (x,y), length 96
+    p.setAttribute("d","M0 48 L0 -30 M -13 -14 L0 -32 L13 -14");
+    p.setAttribute("fill","none");p.setAttribute("stroke-width","7");
+    p.setAttribute("stroke-linecap","round");p.setAttribute("stroke-linejoin","round");
+    g.appendChild(p); g.setAttribute("transform",`translate(${x} ${y})`);
+    arrowsG.appendChild(g); return {g,p,x,y};
+  }
+  const arrDeep=arrow(410,330), arrSup=arrow(92,330);
+
+  function setValveShape(v, open, broken){
+    const {cx,cy,hw}=v, gap=Math.max(1.5, open*hw);
+    // two leaflets pointing inward-up; apex y lifts when open
+    const lift = open*9;
+    v.el.L.setAttribute("d",`M ${cx-hw} ${cy+9} L ${cx-hw} ${cy-6} L ${cx-gap} ${cy-lift} Z`);
+    v.el.R.setAttribute("d",`M ${cx+hw} ${cy+9} L ${cx+hw} ${cy-6} L ${cx+gap} ${cy-lift} Z`);
+    const fill = broken? "#f7c4bf" : "#dbe8fb";
+    const edge = broken? "var(--warn)" : "var(--vein-edge)";
+    v.el.L.setAttribute("fill",fill); v.el.R.setAttribute("fill",fill);
+    v.el.L.setAttribute("stroke",edge); v.el.R.setAttribute("stroke",edge);
+  }
+
+  // ---- state ----
+  let scene=0, playing=false, elapsed=0, last=0;
+  let bulgeAmt=0, laserAmt=0, phase=0;
+
+  function valveBroken(sc,v){
+    if(sc.valve==="sfj-broken") return v.vein==="sfj";
+    if(sc.valve==="sup-broken") return v.vein==="sfj"||v.vein==="sup";
+    return false;
+  }
+
+  function applySceneStatics(){
+    const sc=SCENES[scene];
+    $("tagText").textContent=sc.tag;
+    const t=$("title"), b=$("body");
+    t.textContent=sc.title; b.textContent=sc.body;
+    t.classList.remove("fade"); b.classList.remove("fade");
+    void t.offsetWidth; t.classList.add("fade"); b.classList.add("fade");
+    $("sfjHi").setAttribute("opacity", sc.sfj?"1":"0");
+    // steps ui
+    document.querySelectorAll(".step").forEach((el,i)=>{
+      el.classList.toggle("active",i===scene);
+      el.classList.toggle("done",i<scene);
+    });
+    // arrows base color/direction
+    // deep always up-green (except treated still up-green)
+    arrDeep.p.setAttribute("stroke","var(--up)");
+    arrDeep.g.setAttribute("transform",`translate(${arrDeep.x} ${arrDeep.y})`);
+    if(sc.flow==="reflux"){
+      arrSup.p.setAttribute("stroke","var(--down)");
+      arrSup.g.setAttribute("transform",`translate(${arrSup.x} ${arrSup.y}) rotate(180)`);
+      arrSup.g.setAttribute("opacity","1");
+    }else if(sc.flow==="treated"){
+      arrSup.g.setAttribute("opacity","0");
+    }else{
+      arrSup.p.setAttribute("stroke","var(--up)");
+      arrSup.g.setAttribute("transform",`translate(${arrSup.x} ${arrSup.y})`);
+      arrSup.g.setAttribute("opacity","1");
+    }
+  }
+
+  function goto(i, keepPlay){
+    scene=Math.max(0,Math.min(SCENES.length-1,i));
+    elapsed=0;
+    applySceneStatics();
+    $("prev").disabled=(scene===0);
+    $("next").disabled=(scene===SCENES.length-1);
+    if(!keepPlay){/* keep current playing state */}
+  }
+
+  // particle visibility per scene
+  function activeSets(sc){
+    if(sc.flow==="up")     return {deep:true, sup:true,  ref:false};
+    if(sc.flow==="reflux") return {deep:true, sup:false, ref:true};
+    if(sc.flow==="treated")return {deep:true, sup:false, ref:false};
+    return {deep:true,sup:false,ref:false};
+  }
+
+  function frame(ts){
+    if(!last) last=ts;
+    let dt=(ts-last)/1000; last=ts; if(dt>0.1)dt=0.1;
+    const sc=SCENES[scene];
+
+    // auto-advance
+    if(playing){
+      elapsed+=dt;
+      if(elapsed>=DUR){
+        if(scene<SCENES.length-1){ goto(scene+1,true); }
+        else { playing=false; setPlayUI(); elapsed=DUR; }
+      }
+    }
+    $("prog").style.width = (100*Math.min(elapsed,DUR)/DUR)+"%";
+
+    // valve phase (open/close pulse) — like the muscle pump beat
+    const speed = reduced?0:1.6;
+    phase += dt*speed;
+    const openPulse = 0.5+0.5*Math.sin(phase*Math.PI); // 0..1
+    VALVES.forEach(v=>{
+      const broken=valveBroken(sc,v);
+      let open = broken ? 1 : (sc.flow==="reflux"||sc.flow==="up"||sc.flow==="treated" ? openPulse : openPulse);
+      if(broken) open=1;
+      setValveShape(v, open, broken);
+      // gentle red pulse on broken valve
+      if(broken){
+        const a=0.6+0.4*Math.sin(phase*Math.PI*1.3);
+        v.el.g.setAttribute("opacity", a.toFixed(2));
+      }else{
+        v.el.g.setAttribute("opacity","1");
+      }
+    });
+
+    // yellow highlight pulse
+    if(sc.sfj){
+      const s=1+0.06*Math.sin(phase*Math.PI*1.1);
+      $("sfjHi").setAttribute("transform",`translate(170 132) scale(${s.toFixed(3)}) translate(-170 -132)`);
+    }
+
+    // bulges ease
+    const bt=sc.bulge?1:0; bulgeAmt += (bt-bulgeAmt)*Math.min(1,dt*2.5);
+    BULGES.forEach(b=>{
+      const k=bulgeAmt;
+      b.el.setAttribute("rx",(b.rx*k+0.01).toFixed(2));
+      b.el.setAttribute("ry",(b.ry*k+0.01).toFixed(2));
+      b.el.setAttribute("opacity", k.toFixed(2));
+    });
+
+    // laser / vein-closing ease
+    const lt=sc.laser?1:0; laserAmt += (lt-laserAmt)*Math.min(1,dt*1.6);
+    $("laser").setAttribute("opacity", laserAmt.toFixed(2));
+    // superficial wall closes as laser progresses
+    const supW = 28 - 21*laserAmt;
+    $("supWall").setAttribute("stroke-width", supW.toFixed(1));
+    $("supWall").setAttribute("stroke", laserAmt>0.5?"var(--vein-closed)":"url(#veinGrad)");
+    if(laserAmt>0.02){
+      // laser tip travels down then the line settles
+      const tp=$("laserLine").getTotalLength();
+      const prog=Math.min(1, laserAmt*1.4);
+      const pt=$("laserLine").getPointAtLength(tp*prog);
+      $("laserTip").setAttribute("cx",pt.x); $("laserTip").setAttribute("cy",pt.y);
+    }
+
+    // particles
+    const act=activeSets(sc);
+    const flowSpeed = reduced?18:74;
+    function run(pack, on, color, spd){
+      pack.items.forEach(p=>{
+        if(!on){ p.el.setAttribute("opacity","0"); return; }
+        p.off += (spd*dt)/pack.len;
+        if(p.off>1) p.off-=1;
+        const guide = pack.guide==="deep"?gDeep:pack.guide==="sup"?gSup:gRef;
+        const pt=guide.getPointAtLength(p.off*pack.len);
+        p.el.setAttribute("cx",pt.x); p.el.setAttribute("cy",pt.y);
+        p.el.setAttribute("fill",color);
+        // fade near the ends
+        const edge=Math.min(p.off, 1-p.off);
+        p.el.setAttribute("opacity", Math.min(1, edge*9).toFixed(2));
+      });
+    }
+    run(P.deep, act.deep, "var(--blood)", flowSpeed);
+    run(P.sup,  act.sup,  "var(--blood)", flowSpeed);
+    run(P.ref,  act.ref,  "#e23b3b",      flowSpeed*1.15);
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---- controls ----
+  function setPlayUI(){
+    $("playText").textContent = playing?"一時停止":"再生";
+    $("playIcon").innerHTML = playing
+      ? '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>'
+      : '<path d="M8 5v14l11-7z"/>';
+  }
+  function play(){ playing=true; if(elapsed>=DUR)elapsed=0; setPlayUI(); }
+  function pause(){ playing=false; setPlayUI(); }
+  function toggle(){ playing?pause():play(); }
+
+  $("play").addEventListener("click",toggle);
+  $("prev").addEventListener("click",()=>{goto(scene-1,true);});
+  $("next").addEventListener("click",()=>{goto(scene+1,true);});
+  $("restart").addEventListener("click",()=>{goto(0,true);play();});
+  svg.addEventListener("click",toggle);
+
+  // stepper
+  const stepsNav=$("steps");
+  SCENES.forEach((s,i)=>{
+    const el=document.createElement("button");
+    el.className="step"; el.type="button";
+    el.innerHTML=`<span class="num">${i+1}</span>${s.tag}`;
+    el.addEventListener("click",()=>{goto(i,true);});
+    stepsNav.appendChild(el);
+  });
+
+  // init
+  goto(0,true);
+  setPlayUI();
+  requestAnimationFrame(frame);
+  // autostart gently
+  setTimeout(play, 600);
+})();
+</script>
+</body>
+</html>
