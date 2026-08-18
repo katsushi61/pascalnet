@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<!--
+  App: inventory-management
+  Created: 2026-08-18
+  Description: クリニックの消耗品・薬剤の在庫管理アプリ。カテゴリ別一覧、在庫少・期限間近の警告表示、数量の増減・編集・CSV書き出しに対応。データはブラウザのlocalStorageに保存される(サーバー送信なし)。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>物品在庫管理｜クリニック</title>
+<style>
+  :root{
+    --bg:#eef2f6; --card:#ffffff; --ink:#16202e; --muted:#5c6b7b; --line:#e2e8f0;
+    --teal:#0d9488; --teal-d:#0f766e; --teal-050:#f0fdfa;
+    --amber:#f59e0b; --amber-050:#fffbeb; --amber-700:#b45309;
+    --rose:#f43f5e; --rose-050:#fff1f2; --rose-700:#be123c; --rose-100:#ffe4e6;
+    --amber-100:#fef3c7;
+    --font:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','YuGothic','Noto Sans JP','Meiryo',sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;padding-bottom:40px}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 14px}
+  a{color:inherit}
+
+  /* header */
+  header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
+  .hrow{display:flex;align-items:center;gap:12px;padding:12px 0}
+  .logo{width:38px;height:38px;border-radius:10px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none}
+  .htitle{margin-right:auto}
+  .htitle h1{font-size:16px;font-weight:800;margin:0;line-height:1.2}
+  .htitle p{font-size:12px;color:var(--muted);margin:2px 0 0}
+  .btn{font-family:inherit;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;border-radius:9px;padding:8px 13px}
+  .btn.ghost{background:#fff;color:var(--muted);border:1.5px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--teal);color:var(--teal-d)}
+  .btn.primary{background:var(--teal);color:#fff}
+  .btn.primary:hover{background:var(--teal-d)}
+  .btn:focus-visible{outline:3px solid #99f6e4;outline-offset:2px}
+
+  /* dashboard */
+  .dash{display:flex;gap:8px;padding-bottom:12px}
+  .stat{flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 12px;cursor:pointer;font-family:inherit}
+  .stat .lbl{font-size:12px;color:var(--muted)}
+  .stat .num{margin-left:auto;font-size:20px;font-weight:800;color:var(--ink)}
+  .stat.warn{border-color:#fcd34d;background:var(--amber-050)}
+  .stat.warn .num{color:var(--amber-700)}
+  .stat.danger{border-color:#fda4af;background:var(--rose-050)}
+  .stat.danger .num{color:var(--rose-700)}
+
+  /* controls */
+  .search{position:relative;margin:14px 0 10px}
+  .search input{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 12px 11px 34px;font-size:14px;font-family:inherit;outline:none;background:#fff}
+  .search input:focus{box-shadow:0 0 0 3px #99f6e4}
+  .search svg{position:absolute;left:10px;top:12px;color:#94a3b8}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .pill{font-family:inherit;cursor:pointer;font-size:12px;font-weight:700;border-radius:999px;padding:6px 12px;background:#fff;color:var(--muted);border:1px solid var(--line)}
+  .pill.on{background:#1f2937;color:#fff;border-color:#1f2937}
+  .pill.attn.on{background:var(--amber);border-color:var(--amber);color:#fff}
+
+  /* grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+  .card{display:flex;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .spine{width:6px;flex:none}
+  .body{flex:1;min-width:0;padding:12px}
+  .top{display:flex;align-items:flex-start;gap:8px}
+  .name{font-size:14px;font-weight:800;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .chip{font-size:11px;border-radius:5px;padding:1px 7px;border:1px solid}
+  .sub{font-size:11px;color:#94a3b8}
+  .mono{font-family:var(--mono)}
+  .iconbtn{flex:none;border:none;background:none;cursor:pointer;color:#cbd5e1;border-radius:6px;padding:3px;display:flex}
+  .iconbtn:hover{background:#f1f5f9;color:#475569}
+  .badges{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .badge{font-size:11px;font-weight:700;border-radius:5px;padding:2px 8px}
+  .b-ok{background:var(--teal-050);color:var(--teal-d)}
+  .b-low{background:var(--amber-100);color:var(--amber-700)}
+  .b-out{background:var(--rose-100);color:var(--rose-700)}
+  .qtyrow{margin-top:10px;display:flex;align-items:center;gap:8px}
+  .qbtn{width:38px;height:38px;flex:none;border-radius:10px;border:1px solid var(--line);background:#fff;color:#475569;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+  .qbtn:hover{background:#f8fafc}
+  .qbtn.plus{background:var(--teal);border-color:var(--teal);color:#fff}
+  .qbtn.plus:hover{background:var(--teal-d)}
+  .qbtn:disabled{opacity:.3;cursor:default}
+  .qwrap{flex:1;display:flex;align-items:baseline;justify-content:center;gap:4px}
+  .qwrap input{width:64px;border:1px solid transparent;background:transparent;text-align:center;font-size:26px;font-weight:800;color:var(--ink);font-family:inherit;outline:none;border-radius:6px}
+  .qwrap input:hover{border-color:var(--line)}
+  .qwrap input:focus{border-color:var(--teal);box-shadow:0 0 0 2px #99f6e4}
+  .unit{font-size:12px;color:#94a3b8}
+  .reorder{margin-top:4px;text-align:center;font-size:11px;color:#94a3b8}
+
+  .empty{border:1px dashed #cbd5e1;background:#fff;border-radius:12px;padding:48px;text-align:center;color:#94a3b8;font-size:14px}
+  .foot{margin-top:16px;display:flex;gap:8px;align-items:center}
+  .note{margin-top:12px;font-size:12px;color:#94a3b8;line-height:1.6}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;z-index:30;background:rgba(15,23,42,.45);display:flex;align-items:flex-end;justify-content:center;padding:0}
+  @media(min-width:640px){.overlay{align-items:center;padding:16px}}
+  .modal{width:100%;max-width:520px;max-height:100%;overflow-y:auto;background:#fff;border-radius:18px 18px 0 0;padding:16px}
+  @media(min-width:640px){.modal{border-radius:18px}}
+  .mhead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .mhead h2{font-size:16px;font-weight:800;margin:0}
+  .lab{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px}
+  .lab input,.lab select{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;outline:none;margin-top:4px;background:#fff}
+  .lab input:focus,.lab select:focus{box-shadow:0 0 0 3px #99f6e4}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .mact{display:flex;gap:8px;margin-top:6px}
+  .btn.del{background:#fff;border:1px solid #fecdd3;color:var(--rose-700)}
+  .btn.del:hover{background:var(--rose-050)}
+  .btn.cancel{background:#fff;border:1px solid var(--line);color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="hrow">
+      <div class="logo">▦</div>
+      <div class="htitle"><h1>物品在庫管理</h1><p>クリニック消耗品・薬剤</p></div>
+      <button class="btn ghost" id="csvBtn">⬇ CSV</button>
+      <button class="btn primary" id="addBtn">＋ 追加</button>
+    </div>
+    <div class="dash" id="dash"></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+    <input id="q" placeholder="品名・品番・場所で検索…" />
+  </div>
+  <div class="pills" id="pills"></div>
+  <div id="grid"></div>
+
+  <div class="foot">
+    <button class="btn ghost" id="resetBtn">↺ 初期リストに戻す</button>
+  </div>
+  <p class="note">※ 初期リストは写真から作成した目安です。数量・発注点・使用期限は実物でご確認・修正ください。データはこの端末（ブラウザ）に自動保存されます。バックアップはCSV書き出しをご利用ください。</p>
+</div>
+
+<script>
+/* ===== data ===== */
+var KEY='clinic_inventory_v1';
+var CATS={
+  inject:{label:'注射・穿刺',color:'#3b82f6',bg:'#eff6ff',fg:'#1d4ed8',bd:'#bfdbfe'},
+  iv:{label:'輸液・チューブ',color:'#0ea5e9',bg:'#f0f9ff',fg:'#0369a1',bd:'#bae6fd'},
+  hygiene:{label:'消毒・衛生',color:'#14b8a6',bg:'#f0fdfa',fg:'#0f766e',bd:'#99f6e4'},
+  drug:{label:'薬剤',color:'#8b5cf6',bg:'#f5f3ff',fg:'#6d28d9',bd:'#ddd6fe'},
+  wound:{label:'創傷・被覆',color:'#f59e0b',bg:'#fffbeb',fg:'#b45309',bd:'#fde68a'},
+  glove:{label:'手袋・防護',color:'#f43f5e',bg:'#fff1f2',fg:'#be123c',bd:'#fecdd3'},
+  other:{label:'その他',color:'#94a3b8',bg:'#f8fafc',fg:'#475569',bd:'#e2e8f0'}
+};
+var CAT_KEYS=['inject','iv','hygiene','drug','wound','glove','other'];
+
+var SEEDRAW=[
+ ['テルモシリンジ 50mL ロック(針なし)','inject',2,'箱',1,'棚1','','SS-50LZ'],
+ ['テルモシリンジ 10mL(針なし)','inject',1,'箱',1,'棚1','2030-12','SS-10LZ'],
+ ['テルモシリンジ 5mL(針なし)','inject',1,'箱',1,'棚1','2030-09','SS-05LZ'],
+ ['テルモ カテラン針 22G×70','inject',1,'箱',1,'棚1','','TS-TR2K'],
+ ['テルモ注射針 27G×1″','inject',1,'箱',1,'棚2','','NN-2725R'],
+ ['テルモ注射針 18G×1¼″','inject',1,'箱',1,'棚2','2030-11','NN-1838R'],
+ ['デントロニクス注射針 30G(0.30×12)','inject',1,'箱',1,'棚2','','NO.30'],
+ ['ニプロ輸液投与セット','iv',1,'箱',1,'棚1','','ISA-200A'],
+ ['JMS 連結管','iv',1,'箱',1,'棚1','2028-12','JV-NT3345'],
+ ['サフィード延長チューブ 100cm 3.5mL','iv',2,'箱',1,'棚1','2030-11','SF-ET3520L22'],
+ ['消毒用エタノール 500mL','hygiene',3,'本',2,'棚2','',''],
+ ['ウエルセプト 手指消毒剤 500mL','hygiene',1,'本',2,'棚2','',''],
+ ['ベンザルコニウム塩化物液 0.05%','hygiene',2,'本',1,'棚2','',''],
+ ['ヘパフラッシュ 10単位/mL 10mL','drug',2,'箱',1,'棚2','2028-09',''],
+ ['カロナール錠500','drug',6,'箱',2,'棚3','2026-08',''],
+ ['カロナール錠300','drug',2,'箱',1,'棚3','2029-02',''],
+ ['優肌絆 EasyCut 25mm','wound',2,'箱',1,'棚2','','MM3292'],
+ ['モイスキンパッド Mini','wound',1,'箱',1,'棚3','2029-02',''],
+ ['伸縮ホータイ ライト 10cm','wound',1,'箱',1,'棚3','',''],
+ ['CGパッド','wound',2,'箱',1,'棚5','',''],
+ ['ニプロ サージカルハンド PF 7.5','glove',4,'箱',2,'棚4','2030-03',''],
+ ['Medicom Vitals グローブ','glove',4,'箱',2,'棚5','',''],
+ ['EMBLEM グローブ(ラテックスフリー)','glove',1,'箱',1,'棚4','',''],
+ ['検診用ロールシーツ','other',2,'箱',1,'棚3','','3730']
+];
+function seed(){
+  return SEEDRAW.map(function(r,i){
+    return {id:i+1,name:r[0],cat:r[1],qty:r[2],unit:r[3],reorder:r[4],location:r[5],expiry:r[6],code:r[7],note:''};
+  });
+}
+var uid=0;
+function nextId(){ uid++; return uid; }
+
+var items=load()||seed();
+uid=items.reduce(function(m,x){return Math.max(m,x.id||0);},0);
+
+function load(){ try{var s=localStorage.getItem(KEY);return s?JSON.parse(s):null;}catch(e){return null;} }
+function persist(){ try{localStorage.setItem(KEY,JSON.stringify(items));}catch(e){} }
+
+/* ===== state ===== */
+var query='',catFilter='all',attn=false,resetArm=false;
+
+/* ===== helpers ===== */
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function stockStatus(it){
+  if(it.qty<=0) return {key:'out',label:'欠品',cls:'b-out'};
+  if(it.qty<=(it.reorder||0)) return {key:'low',label:'在庫少',cls:'b-low'};
+  return {key:'ok',label:'在庫OK',cls:'b-ok'};
+}
+function expiryInfo(ym){
+  if(!ym) return null;
+  var p=ym.split('-'),y=+p[0],m=+p[1]; if(!y||!m) return null;
+  var end=new Date(y,m,0); var days=Math.round((end-new Date())/86400000);
+  if(days<0) return {key:'expired',label:'期限切れ',cls:'b-out'};
+  if(days<=180) return {key:'soon',label:'期限間近',cls:'b-low'};
+  return {key:'ok'};
+}
+function attnItem(it){
+  var s=stockStatus(it),e=expiryInfo(it.expiry);
+  return s.key!=='ok' || (e&&(e.key==='soon'||e.key==='expired'));
+}
+
+/* ===== render ===== */
+var $=function(id){return document.getElementById(id);};
+
+function renderDash(){
+  var low=0,exp=0;
+  items.forEach(function(it){
+    if(stockStatus(it).key!=='ok') low++;
+    var e=expiryInfo(it.expiry); if(e&&(e.key==='soon'||e.key==='expired')) exp++;
+  });
+  $('dash').innerHTML=
+   '<button class="stat" data-act="all"><span>📦</span><span class="lbl">総品目</span><span class="num">'+items.length+'</span></button>'+
+   '<button class="stat '+(low?'warn':'')+'" data-act="attn"><span>⚠️</span><span class="lbl">要発注</span><span class="num">'+low+'</span></button>'+
+   '<button class="stat '+(exp?'danger':'')+'" data-act="attn"><span>📅</span><span class="lbl">期限</span><span class="num">'+exp+'</span></button>';
+}
+
+function renderPills(){
+  var html='<button class="pill '+(catFilter==='all'&&!attn?'on':'')+'" data-cat="all">すべて</button>'+
+    '<button class="pill attn '+(attn?'on':'')+'" data-attn="1">⚠ 要対応</button>';
+  CAT_KEYS.forEach(function(k){
+    html+='<button class="pill '+(catFilter===k?'on':'')+'" data-cat="'+k+'">'+CATS[k].label+'</button>';
+  });
+  $('pills').innerHTML=html;
+}
+
+function visibleItems(){
+  var q=query.trim().toLowerCase();
+  return items.filter(function(it){
+    if(catFilter!=='all'&&it.cat!==catFilter) return false;
+    if(q){
+      var hay=(it.name+' '+(it.code||'')+' '+(it.location||'')).toLowerCase();
+      if(hay.indexOf(q)<0) return false;
+    }
+    if(attn&&!attnItem(it)) return false;
+    return true;
+  }).sort(function(a,b){
+    var rank=function(x){var k=stockStatus(x).key;return k==='out'?0:k==='low'?1:2;};
+    return rank(a)-rank(b) || CAT_KEYS.indexOf(a.cat)-CAT_KEYS.indexOf(b.cat) || a.name.localeCompare(b.name,'ja');
+  });
+}
+
+function card(it){
+  var C=CATS[it.cat],s=stockStatus(it),e=expiryInfo(it.expiry);
+  var badges='<span class="badge '+s.cls+'">'+s.label+'</span>';
+  if(e&&(e.key==='expired'||e.key==='soon')) badges+='<span class="badge '+e.cls+'">'+e.label+'・'+it.expiry+'</span>';
+  else if(it.expiry) badges+='<span class="sub">期限 '+esc(it.expiry)+'</span>';
+  return '<div class="card">'+
+    '<div class="spine" style="background:'+C.color+'"></div>'+
+    '<div class="body">'+
+      '<div class="top"><div style="min-width:0;flex:1">'+
+        '<h3 class="name" title="'+esc(it.name)+'">'+esc(it.name)+'</h3>'+
+        '<div class="meta">'+
+          '<span class="chip" style="background:'+C.bg+';color:'+C.fg+';border-color:'+C.bd+'">'+C.label+'</span>'+
+          (it.location?'<span class="sub">'+esc(it.location)+'</span>':'')+
+          (it.code?'<span class="sub mono">'+esc(it.code)+'</span>':'')+
+        '</div>'+
+      '</div>'+
+      '<button class="iconbtn" data-edit="'+it.id+'" title="編集">✎</button></div>'+
+      '<div class="badges">'+badges+'</div>'+
+      '<div class="qtyrow">'+
+        '<button class="qbtn" data-dec="'+it.id+'" '+(it.qty<=0?'disabled':'')+'>−</button>'+
+        '<div class="qwrap"><input type="number" inputmode="numeric" value="'+it.qty+'" data-qty="'+it.id+'"><span class="unit">'+esc(it.unit)+'</span></div>'+
+        '<button class="qbtn plus" data-inc="'+it.id+'">＋</button>'+
+      '</div>'+
+      '<div class="reorder">発注点 '+it.reorder+' '+esc(it.unit)+'</div>'+
+    '</div></div>';
+}
+
+function renderGrid(){
+  var list=visibleItems();
+  var g=$('grid');
+  if(!list.length){ g.innerHTML='<div class="empty">該当する品目がありません。</div>'; return; }
+  g.className='grid';
+  g.innerHTML=list.map(card).join('');
+}
+
+function render(){ renderDash(); renderPills(); renderGrid(); }
+
+/* ===== actions ===== */
+function findItem(id){ return items.filter(function(x){return x.id==id;})[0]; }
+function adjust(id,d){ var it=findItem(id); if(it){ it.qty=Math.max(0,it.qty+d); persist(); render(); } }
+
+/* ===== modal ===== */
+function openModal(it){
+  var isNew=!it;
+  var m=it||{name:'',cat:'other',qty:0,unit:'箱',reorder:1,location:'',expiry:'',code:'',note:''};
+  var ov=document.createElement('div'); ov.className='overlay';
+  var catOpts=CAT_KEYS.map(function(k){return '<option value="'+k+'" '+(m.cat===k?'selected':'')+'>'+CATS[k].label+'</option>';}).join('');
+  ov.innerHTML='<div class="modal">'+
+    '<div class="mhead"><h2>'+(isNew?'品目を追加':'品目を編集')+'</h2>'+
+      '<button class="iconbtn" id="mClose" style="margin-left:auto">✕</button></div>'+
+    '<label class="lab">品名<input id="fName" value="'+esc(m.name)+'" placeholder="品名"></label>'+
+    '<div class="row2">'+
+      '<label class="lab">カテゴリ<select id="fCat">'+catOpts+'</select></label>'+
+      '<label class="lab">保管場所<input id="fLoc" value="'+esc(m.location)+'" placeholder="棚1 など"></label>'+
+    '</div>'+
+    '<div class="row3">'+
+      '<label class="lab">在庫数<input id="fQty" type="number" inputmode="numeric" value="'+m.qty+'"></label>'+
+      '<label class="lab">単位<input id="fUnit" value="'+esc(m.unit)+'" placeholder="箱/本"></label>'+
+      '<label class="lab">発注点<input id="fRe" type="number" inputmode="numeric" value="'+m.reorder+'"></label>'+
+    '</div>'+
+    '<div class="row2">'+
+      '<label class="lab">使用期限<input id="fExp" type="month" value="'+esc(m.expiry)+'"></label>'+
+      '<label class="lab">品番（任意）<input id="fCode" value="'+esc(m.code||'')+'" placeholder="コード"></label>'+
+    '</div>'+
+    '<label class="lab">メモ<input id="fNote" value="'+esc(m.note||'')+'"></label>'+
+    '<div class="mact">'+
+      (isNew?'':'<button class="btn del" id="mDel">🗑 削除</button>')+
+      '<button class="btn cancel" id="mCancel" style="margin-left:auto">キャンセル</button>'+
+      '<button class="btn primary" id="mSave">保存</button>'+
+    '</div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  function close(){ document.body.removeChild(ov); }
+  ov.addEventListener('click',function(e){ if(e.target===ov) close(); });
+  $('mClose').onclick=close; $('mCancel').onclick=close;
+  if(!isNew) $('mDel').onclick=function(){ items=items.filter(function(x){return x.id!==m.id;}); persist(); close(); render(); };
+  $('mSave').onclick=function(){
+    var name=$('fName').value.trim(); if(!name){ $('fName').focus(); return; }
+    var data={name:name,cat:$('fCat').value,location:$('fLoc').value.trim(),
+      qty:Math.max(0,parseInt($('fQty').value)||0),unit:$('fUnit').value.trim()||'個',
+      reorder:Math.max(0,parseInt($('fRe').value)||0),expiry:$('fExp').value,
+      code:$('fCode').value.trim(),note:$('fNote').value.trim()};
+    if(isNew){ data.id=nextId(); items.push(data); }
+    else { for(var k in data) m[k]=data[k]; }
+    persist(); close(); render();
+  };
+  $('fName').focus();
+}
+
+/* ===== CSV ===== */
+function exportCSV(){
+  var head=['品名','カテゴリ','在庫数','単位','発注点','保管場所','使用期限','品番','メモ'];
+  var esc2=function(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"';};
+  var rows=items.map(function(it){return [it.name,CATS[it.cat].label,it.qty,it.unit,it.reorder,it.location,it.expiry,it.code||'',it.note||''];});
+  var csv='\uFEFF'+[head].concat(rows).map(function(r){return r.map(esc2).join(',');}).join('\r\n');
+  var blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download='在庫リスト.csv'; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+/* ===== events ===== */
+$('q').addEventListener('input',function(e){ query=e.target.value; renderGrid(); });
+$('addBtn').addEventListener('click',function(){ openModal(null); });
+$('csvBtn').addEventListener('click',exportCSV);
+$('resetBtn').addEventListener('click',function(){
+  if(resetArm){ items=seed(); uid=items.length; persist(); resetArm=false; render(); this.innerHTML='↺ 初期リストに戻す'; this.classList.remove('primary'); }
+  else { resetArm=true; var b=this; b.innerHTML='本当に戻す？（もう一度）'; setTimeout(function(){resetArm=false;b.innerHTML='↺ 初期リストに戻す';},3000); }
+});
+
+$('dash').addEventListener('click',function(e){
+  var b=e.target.closest('.stat'); if(!b) return;
+  if(b.dataset.act==='all'){ attn=false; catFilter='all'; } else { attn=true; }
+  render();
+});
+$('pills').addEventListener('click',function(e){
+  var b=e.target.closest('.pill'); if(!b) return;
+  if(b.dataset.attn){ attn=!attn; }
+  else { catFilter=b.dataset.cat; attn=false; }
+  render();
+});
+$('grid').addEventListener('click',function(e){
+  var el=e.target.closest('[data-inc],[data-dec],[data-edit]'); if(!el) return;
+  if(el.dataset.inc) adjust(el.dataset.inc,1);
+  else if(el.dataset.dec) adjust(el.dataset.dec,-1);
+  else if(el.dataset.edit) openModal(findItem(el.dataset.edit));
+});
+$('grid').addEventListener('change',function(e){
+  var el=e.target.closest('[data-qty]'); if(!el) return;
+  var it=findItem(el.dataset.qty); if(it){ it.qty=Math.max(0,parseInt(el.value)||0); persist(); render(); }
+});
+
+render();
+</script>
+</body>
+</html>
