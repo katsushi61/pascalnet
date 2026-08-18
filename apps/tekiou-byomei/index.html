@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<!--
+  App: tekiou-byomei
+  Created: 2026-08-18
+  Description: レセ電算の傷病名マスター(b_YYYYMMDD.txt)を読み込み、薬剤ごとに適応病名を検索・紐付けして管理するアシストツール。紐付け結果はブラウザに保存され、レセプト用の病名選択作業を補助する。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>適応病名アシスト | venonet</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Hiragino Kaku Gothic ProN','Yu Gothic','Noto Sans JP',sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ============================================================
+// 傷病名マスター(レセ電算 b_YYYYMMDD.txt)パーサー
+// 全項目二重引用符囲みのShift-JIS CSV(全46項目)
+// 使用列(0始まり):
+//  [0]変更区分 [2]傷病名コード [5]基本名称 [7]省略名称
+//  [9]カナ名称 [15]ICD-10-1 [18]単独使用禁止 [19]保険請求外 [23]廃止年月日
+// ============================================================
+function parseCsvLine(line) {
+  const out = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ",") { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseMaster(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const f = parseCsvLine(line);
+    if (f.length < 24 || f[1] !== "B") continue;
+    if (f[0] === "1") continue; // 抹消レコードは除外
+    rows.push({
+      code: f[2],
+      name: f[5],
+      abbr: f[7] || "",
+      kana: f[9] || "",
+      icd: f[15] || "",
+      soloNg: f[18] === "01",
+      nonIns: f[19] === "1",
+      expire: f[23] || "",
+    });
+  }
+  return rows;
+}
+
+const isActive = (r) => {
+  if (r.expire === "99999999" || !r.expire) return true;
+  const t = new Date();
+  const ymd = t.getFullYear() * 10000 + (t.getMonth() + 1) * 100 + t.getDate();
+  return parseInt(r.expire, 10) >= ymd;
+};
+
+const toKata = (s) => s.replace(/[\u3041-\u3096]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+const norm = (s) => toKata(String(s).toUpperCase().trim());
+
+const DEMO_DRUGS = [
+  { id: "d1", name: "ヘパリン類似物質油性クリーム0.3%", code: "" },
+  { id: "d2", name: "リンデロン-VG軟膏0.12%", code: "" },
+  { id: "d3", name: "桂枝茯苓丸エキス顆粒", code: "" },
+  { id: "d4", name: "ロキソプロフェンNa錠60mg", code: "" },
+];
+
+const MASTER_KEY = "byomei-master-v1";
+const MAP_KEY = "drug-byomei-map-v1";
+
+const storageGet = (k) => {
+  try { return localStorage.getItem(k); } catch (e) { return null; }
+};
+const storageSet = (k, v) => {
+  try { localStorage.setItem(k, v); return true; } catch (e) { return false; }
+};
+
+function TekiouByomei() {
+  const [master, setMaster] = useState([]);
+  const [masterInfo, setMasterInfo] = useState(null);
+  const [drugs, setDrugs] = useState(DEMO_DRUGS);
+  const [mapping, setMapping] = useState({});
+  const [pickerFor, setPickerFor] = useState(null);
+  const [query, setQuery] = useState("");
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [newDrug, setNewDrug] = useState("");
+  const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef(null);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    const m = storageGet(MAP_KEY);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m);
+        if (parsed.drugs) setDrugs(parsed.drugs);
+        if (parsed.mapping) setMapping(parsed.mapping);
+      } catch (e) {}
+    }
+    const s = storageGet(MASTER_KEY);
+    if (s) {
+      try {
+        const parsed = JSON.parse(s);
+        setMaster(parsed.rows);
+        setMasterInfo({ count: parsed.rows.length, loadedAt: parsed.loadedAt });
+      } catch (e) {}
+    }
+  }, []);
+
+  const persistMap = (nextDrugs, nextMapping) => {
+    storageSet(MAP_KEY, JSON.stringify({ drugs: nextDrugs, mapping: nextMapping }));
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setLoading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      let text;
+      try { text = new TextDecoder("shift_jis").decode(buf); }
+      catch { text = new TextDecoder("utf-8").decode(buf); }
+      const rows = parseMaster(text);
+      if (rows.length === 0) {
+        setToast("病名レコードが見つかりません。b_YYYYMMDD.txt を指定してください");
+        setLoading(false);
+        return;
+      }
+      setMaster(rows);
+      const loadedAt = new Date().toLocaleDateString("ja-JP");
+      setMasterInfo({ count: rows.length, loadedAt });
+      const ok = storageSet(MASTER_KEY, JSON.stringify({ rows, loadedAt }));
+      setToast(ok
+        ? `傷病名マスター ${rows.length.toLocaleString()}件を読み込み、保存しました`
+        : `${rows.length.toLocaleString()}件を読み込みました(容量超過のため次回は再読込が必要です)`);
+    } catch (e) {
+      setToast("読み込みに失敗しました: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  const results = useMemo(() => {
+    const q = norm(query);
+    if (!q) return [];
+    let pool = master;
+    if (activeOnly) pool = pool.filter(isActive);
+    const hits = [];
+    for (const r of pool) {
+      if (
+        r.name.includes(query) ||
+        norm(r.kana).includes(q) ||
+        r.code.startsWith(query) ||
+        (r.icd && r.icd.startsWith(q))
+      ) {
+        hits.push(r);
+        if (hits.length >= 60) break;
+      }
+    }
+    return hits;
+  }, [query, master, activeOnly]);
+
+  const addByomei = (drugId, r) => {
+    const cur = mapping[drugId] || [];
+    if (cur.some((x) => x.code === r.code)) return;
+    const next = { ...mapping, [drugId]: [...cur, { code: r.code, name: r.name, icd: r.icd, soloNg: r.soloNg }] };
+    setMapping(next);
+    persistMap(drugs, next);
+  };
+  const removeByomei = (drugId, code) => {
+    const next = { ...mapping, [drugId]: (mapping[drugId] || []).filter((x) => x.code !== code) };
+    setMapping(next);
+    persistMap(drugs, next);
+  };
+
+  const addDrug = () => {
+    const name = newDrug.trim();
+    if (!name) return;
+    const next = [...drugs, { id: "d" + Date.now(), name, code: "" }];
+    setDrugs(next);
+    setNewDrug("");
+    persistMap(next, mapping);
+  };
+  const removeDrug = (id) => {
+    const nextDrugs = drugs.filter((d) => d.id !== id);
+    const nextMap = { ...mapping };
+    delete nextMap[id];
+    setDrugs(nextDrugs);
+    setMapping(nextMap);
+    persistMap(nextDrugs, nextMap);
+  };
+
+  const copyEmr = () => {
+    const lines = drugs.map((d) => {
+      const bs = (mapping[d.id] || []).map((b) => b.name).join("、");
+      return bs ? `${d.name}\n  適応病名: ${bs}` : d.name;
+    });
+    navigator.clipboard.writeText(lines.join("\n"));
+    setToast("EMR貼り付け用テキストをコピーしました");
+  };
+  const exportJson = () => {
+    const data = drugs.map((d) => ({
+      drugName: d.name,
+      drugCode: d.code,
+      byomei: (mapping[d.id] || []).map(({ code, name, icd }) => ({ code, name, icd })),
+    }));
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setToast("薬剤→病名対応JSONをコピーしました");
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    if (pickerFor && searchRef.current) searchRef.current.focus();
+  }, [pickerFor]);
+
+  const pickerDrug = drugs.find((d) => d.id === pickerFor);
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800">
+      <header className="bg-teal-900 text-white px-5 py-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-lg font-bold tracking-wide">適応病名アシスト</h1>
+            <p className="text-teal-200 text-xs mt-0.5">レセ電算 傷病名マスター対応(令和8年6月版)</p>
+          </div>
+          <div className="text-right text-xs">
+            {masterInfo ? (
+              <span className="inline-flex items-center gap-1.5 bg-teal-800 rounded px-2.5 py-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                マスター {masterInfo.count.toLocaleString()}件
+                <span className="text-teal-300">({masterInfo.loadedAt}読込)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 bg-teal-800 rounded px-2.5 py-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                マスター未読込
+              </span>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-5 space-y-5">
+        <section className="bg-white rounded-lg border border-slate-200 p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm">
+              <p className="font-semibold">傷病名マスターを読み込む</p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                診療報酬情報提供サービスのZIPを解凍した「b_YYYYMMDD.txt」を選択(Shift-JIS対応・データは端末内のみで処理)
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input ref={fileRef} type="file" accept=".txt,.csv" className="hidden"
+                onChange={(e) => handleFile(e.target.files[0])} />
+              <button onClick={() => fileRef.current && fileRef.current.click()} disabled={loading}
+                className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium rounded px-4 py-2">
+                {loading ? "読込中…" : "ファイルを選択"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="font-semibold text-sm">処方薬と適応病名</h2>
+            <div className="flex gap-2">
+              <button onClick={copyEmr}
+                className="text-xs border border-teal-700 text-teal-800 hover:bg-teal-50 rounded px-3 py-1.5 font-medium">
+                EMR用テキストをコピー
+              </button>
+              <button onClick={exportJson}
+                className="text-xs border border-slate-300 text-slate-600 hover:bg-slate-50 rounded px-3 py-1.5">
+                対応表JSONをコピー
+              </button>
+            </div>
+          </div>
+
+          <ul className="divide-y divide-slate-100">
+            {drugs.map((d) => (
+              <li key={d.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium text-sm leading-6">{d.name}</p>
+                  <button onClick={() => removeDrug(d.id)}
+                    className="text-slate-300 hover:text-red-500 text-lg leading-none px-1" aria-label="この薬剤を削除">×</button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {(mapping[d.id] || []).map((b) => (
+                    <span key={b.code}
+                      className="inline-flex items-center gap-1.5 bg-teal-50 border border-teal-200 text-teal-900 rounded-full pl-2.5 pr-1 py-1 text-xs">
+                      {b.name}
+                      {b.icd && <span className="text-teal-500 font-mono text-[10px]">{b.icd}</span>}
+                      <button onClick={() => removeByomei(d.id, b.code)}
+                        className="w-4 h-4 rounded-full hover:bg-teal-200 text-teal-600 leading-none" aria-label="この病名を外す">×</button>
+                    </span>
+                  ))}
+                  <button onClick={() => { setPickerFor(d.id); setQuery(""); }} disabled={master.length === 0}
+                    className="inline-flex items-center gap-1 border border-dashed border-slate-300 text-slate-500 hover:border-teal-500 hover:text-teal-700 disabled:opacity-40 rounded-full px-3 py-1 text-xs">
+                    ＋ 病名を追加
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="px-4 py-3 border-t border-slate-100 flex gap-2">
+            <input value={newDrug} onChange={(e) => setNewDrug(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addDrug()}
+              placeholder="薬剤名を入力して追加"
+              className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            <button onClick={addDrug}
+              className="bg-slate-700 hover:bg-slate-800 text-white text-sm rounded px-4">追加</button>
+          </div>
+        </section>
+
+        {master.length === 0 && (
+          <p className="text-center text-sm text-slate-400">マスターを読み込むと病名検索が使えます</p>
+        )}
+      </main>
+
+      {pickerFor && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-6"
+          onClick={() => setPickerFor(null)}>
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-xl rounded-t-xl shadow-xl flex flex-col max-h-[85vh]"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 pt-4 pb-3 border-b border-slate-200">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">病名を追加</p>
+                <button onClick={() => setPickerFor(null)}
+                  className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="閉じる">×</button>
+              </div>
+              <p className="font-semibold text-sm mt-0.5">{pickerDrug && pickerDrug.name}</p>
+              <input ref={searchRef} value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder="病名・カナ・コード・ICD10で検索"
+                className="mt-3 w-full border border-slate-300 rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              <label className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)}
+                  className="accent-teal-700" />
+                有効な病名のみ(廃止・経過措置を除く)
+              </label>
+            </div>
+
+            <div className="overflow-y-auto flex-1">
+              {query && results.length === 0 && (
+                <p className="text-center text-sm text-slate-400 py-8">該当する病名がありません</p>
+              )}
+              <ul className="divide-y divide-slate-100">
+                {results.map((r) => {
+                  const already = (mapping[pickerFor] || []).some((x) => x.code === r.code);
+                  return (
+                    <li key={r.code}>
+                      <button onClick={() => addByomei(pickerFor, r)} disabled={already}
+                        className="w-full text-left px-4 py-2.5 hover:bg-teal-50 disabled:bg-slate-50 disabled:opacity-60 flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm">{r.name}</p>
+                          <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            {r.code}
+                            {r.icd && <span className="ml-2">ICD10: {r.icd}</span>}
+                            {!isActive(r) && <span className="ml-2 text-amber-600">廃止({r.expire})</span>}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {r.soloNg && <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1.5 py-0.5">修飾語必須</span>}
+                          {r.nonIns && <span className="text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5">請求外</span>}
+                          {already && <span className="text-[10px] text-teal-600">追加済</span>}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm rounded-lg px-4 py-2.5 shadow-lg z-50">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<TekiouByomei />);
+</script>
+</body>
+</html>
