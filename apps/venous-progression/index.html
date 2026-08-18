@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<!--
+  App: venous-progression
+  Created: 2026-08-18
+  Description: 静脈瘤から皮膚潰瘍へ至る進行過程を説明する患者向けアニメーション。静脈弁不全による血液の逆流を起点に、うっ滞・色素沈着・皮膚炎・潰瘍形成までを、皮膚断面と静脈模式図（表在・深部・穿通枝・弁）を並べてステップ表示する。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>静脈瘤から潰瘍へ — 進行アニメーション</title>
+<style>
+  :root{
+    --bg:#eef2f6;
+    --panel:#ffffff;
+    --ink:#1d2733;
+    --sub:#5a6b7b;
+    --line:#d7dee6;
+    --deep:#1e4fa0;       /* 深部静脈 */
+    --deep-d:#123a7d;
+    --super:#2f78c9;      /* 表在静脈 */
+    --super-d:#1f5aa0;
+    --blood:#e23b47;      /* 血流 */
+    --warn:#f4c331;       /* 弁不全の起点（黄丸） */
+    --skin:#f0c49c;       /* 健常皮膚 */
+    --skin-sub:#f6d9c2;
+    --pig:#7c4a2b;        /* ヘモジデリン沈着 */
+    --derm:#c33a2e;       /* 皮膚炎 */
+    --ulcer:#5f1717;      /* 潰瘍 */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;}
+  .wrap{max-width:760px;margin:0 auto;padding:16px 14px 40px;}
+  header h1{font-size:19px;font-weight:800;letter-spacing:.02em;margin:4px 0 2px;}
+  header p{font-size:12.5px;color:var(--sub);margin:0 0 12px;line-height:1.5;}
+
+  .stage{display:flex;flex-direction:column;background:var(--panel);
+    border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    box-shadow:0 6px 22px -14px rgba(20,40,70,.35);}
+  .svgbox{width:100%;background:linear-gradient(180deg,#fbfdff,#f4f8fc);}
+  svg{display:block;width:100%;height:auto;}
+
+  /* caption */
+  .cap{padding:14px 16px 16px;border-top:1px solid var(--line);}
+  .cap .step{display:inline-flex;align-items:center;gap:8px;font-size:11px;
+    font-weight:800;letter-spacing:.08em;color:var(--sub);}
+  .cap .dot{width:9px;height:9px;border-radius:50%;background:var(--warn);}
+  .cap h2{font-size:17px;font-weight:800;margin:6px 0 5px;}
+  .cap p{font-size:13px;line-height:1.65;color:#31404f;margin:0;}
+
+  /* progress dots */
+  .track{display:flex;gap:6px;margin:12px 0 0;}
+  .track button{flex:1;height:7px;border:0;padding:0;border-radius:4px;
+    background:var(--line);cursor:pointer;transition:background .3s;}
+  .track button.done{background:#9db6cf;}
+  .track button.active{background:var(--warn);}
+
+  /* controls */
+  .ctrl{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  .ctrl button{font:inherit;font-size:13px;font-weight:700;cursor:pointer;
+    border:1px solid var(--line);background:#fff;color:var(--ink);
+    padding:9px 16px;border-radius:10px;transition:.15s;}
+  .ctrl button:hover{border-color:#9db6cf;}
+  .ctrl button.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .ctrl button:focus-visible{outline:3px solid #98c1ec;outline-offset:2px;}
+  .stagebtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .stagebtns button{font-size:11.5px;padding:7px 10px;color:var(--sub);}
+  .stagebtns button.on{background:var(--warn);border-color:var(--warn);color:#3a2c00;}
+  .hint{font-size:11px;color:var(--sub);margin-top:12px;line-height:1.5;}
+
+  @media (max-width:520px){ header h1{font-size:17px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>静脈瘤から潰瘍まで — 進行のしくみ</h1>
+    <p>静脈弁が壊れて血液が逆流すると、皮膚のうっ滞・炎症が進み、やがて潰瘍にいたります。左：皮膚の断面／右：静脈の模式図（表在・深部・穿通枝・弁）。</p>
+  </header>
+
+  <div class="stage">
+    <div class="svgbox">
+      <svg id="scene" viewBox="0 0 440 560" role="img" aria-label="静脈の進行アニメーション">
+        <defs>
+          <linearGradient id="skinGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#f7ddc7"/><stop offset="1" stop-color="#f0c49c"/>
+          </linearGradient>
+          <radialGradient id="ulcerGrad" cx="0.5" cy="0.4" r="0.7">
+            <stop offset="0" stop-color="#3a0d0d"/><stop offset=".55" stop-color="#7d2020"/>
+            <stop offset="1" stop-color="#a84a3a"/>
+          </radialGradient>
+          <filter id="soft"><feGaussianBlur stdDeviation="2.2"/></filter>
+        </defs>
+
+        <!-- direction labels -->
+        <text x="330" y="24" font-size="13" font-weight="700" fill="#334">頭側（心臓へ）▲</text>
+        <text x="330" y="548" font-size="13" font-weight="700" fill="#334">足先 ▼</text>
+
+        <!-- ===== SKIN cross-section (left) ===== -->
+        <g id="skinGroup">
+          <text x="24" y="42" font-size="13" font-weight="800" fill="#334">皮膚</text>
+          <!-- base skin slab -->
+          <rect x="26" y="60" width="86" height="452" rx="16" fill="url(#skinGrad)" stroke="#e2ad84" stroke-width="1.5"/>
+          <!-- subcutis line -->
+          <rect x="86" y="60" width="26" height="452" rx="10" fill="#f8e2d0" opacity=".8"/>
+          <!-- capillary loops near surface -->
+          <g id="caps" stroke="#d9748a" stroke-width="2" fill="none" opacity=".55">
+            <path d="M40 130 q10 -12 20 0"/><path d="M40 210 q10 -12 20 0"/>
+            <path d="M40 300 q10 -12 20 0"/><path d="M40 390 q10 -12 20 0"/>
+            <path d="M40 460 q10 -12 20 0"/>
+          </g>
+          <!-- pigmentation (hemosiderin) -->
+          <g id="pig" opacity="0"></g>
+          <!-- dermatitis overlay -->
+          <rect id="derm" x="28" y="300" width="82" height="210" rx="14" fill="#c33a2e" opacity="0"/>
+          <g id="scale" opacity="0" fill="#e9a091"></g>
+          <!-- ulcer -->
+          <g id="ulcer" opacity="0">
+            <ellipse cx="60" cy="440" rx="26" ry="34" fill="url(#ulcerGrad)"/>
+            <ellipse cx="60" cy="440" rx="26" ry="34" fill="none" stroke="#7a2b22" stroke-width="3"/>
+            <ellipse cx="60" cy="440" rx="34" ry="42" fill="none" stroke="#d67d63" stroke-width="4" opacity=".5"/>
+          </g>
+          <!-- leaked blood dots into tissue -->
+          <g id="leak"></g>
+        </g>
+
+        <!-- ===== VEINS (right) ===== -->
+        <!-- vessel base strokes -->
+        <g id="veins">
+          <!-- deep vein -->
+          <line x1="300" y1="70" x2="300" y2="505" stroke="var(--deep)" stroke-width="26" stroke-linecap="round"/>
+          <line x1="300" y1="70" x2="300" y2="505" stroke="var(--deep-d)" stroke-width="26" stroke-linecap="round" opacity=".18"/>
+          <text x="286" y="532" font-size="12.5" font-weight="800" fill="var(--deep-d)" text-anchor="middle">深部静脈</text>
+
+          <!-- superficial vein (normal width; widened via JS) -->
+          <line id="superVein" x1="185" y1="90" x2="185" y2="505" stroke="var(--super)" stroke-width="18" stroke-linecap="round"/>
+          <!-- varicose bulges overlay -->
+          <path id="varix" d="" fill="var(--super)" opacity="0"/>
+          <text x="185" y="532" font-size="12.5" font-weight="800" fill="var(--super-d)" text-anchor="middle">表在静脈</text>
+
+          <!-- perforators -->
+          <line class="perf" x1="197" y1="205" x2="288" y2="205" stroke="var(--super)" stroke-width="10" stroke-linecap="round"/>
+          <line class="perf" x1="197" y1="320" x2="288" y2="320" stroke="var(--super)" stroke-width="10" stroke-linecap="round"/>
+          <line class="perf" x1="197" y1="430" x2="288" y2="430" stroke="var(--super)" stroke-width="10" stroke-linecap="round"/>
+
+          <!-- junction (top) + warning ring -->
+          <path d="M185 92 Q185 74 240 72 Q300 70 300 82" fill="none" stroke="var(--super)" stroke-width="16" stroke-linecap="round"/>
+          <circle id="warnRing" cx="205" cy="96" r="30" fill="none" stroke="var(--warn)" stroke-width="4" opacity="0"/>
+        </g>
+
+        <!-- valves -->
+        <g id="valves"></g>
+        <!-- blood particles -->
+        <g id="blood"></g>
+
+        <!-- pressure gauge -->
+        <g id="gauge">
+          <text x="415" y="300" font-size="11" font-weight="700" fill="#556" transform="rotate(90 415 300)">静脈圧</text>
+          <rect x="398" y="150" width="12" height="300" rx="6" fill="#e6ecf2" stroke="#cdd7e0"/>
+          <rect id="gaugeFill" x="398" y="430" width="12" height="20" rx="6" fill="#57b06a"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="cap">
+      <span class="step"><span class="dot"></span><span id="stepNo">段階 1 / 5</span></span>
+      <h2 id="capTitle">正常な静脈</h2>
+      <p id="capText">静脈弁が正しく働き、血液は足先から頭側（心臓）へ一方向に流れます。表在静脈の血液は穿通枝を通って深部静脈へ送られ、うっ滞は起きません。</p>
+
+      <div class="track" id="track"></div>
+
+      <div class="ctrl">
+        <button class="primary" id="playBtn">⏸ 一時停止</button>
+        <button id="replayBtn">↻ 最初から</button>
+      </div>
+      <div class="stagebtns" id="stagebtns"></div>
+      <p class="hint">自動で進みます。各段階のボタンで手動切り替えも可能です。<br>講演用にMP4動画へ書き出したい場合は、以前のffmpeg書き出しの流れで対応できます。お声がけください。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const SVG="http://www.w3.org/2000/svg";
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- stage data ----------
+  const stages = [
+    { title:"正常な静脈",
+      text:"静脈弁が正しく働き、血液は足先から頭側（心臓）へ一方向に流れます。表在静脈の血液は穿通枝を通って深部静脈へ送られ、うっ滞は起きません。",
+      reflux:false, varix:0, pressure:.12, pig:0, derm:0, ulcer:0, leak:0, warn:0, valveFail:false },
+    { title:"弁不全・静脈瘤",
+      text:"接合部（黄丸）の静脈弁が壊れると血液が逆流します。行き場を失った血液で表在静脈がふくらみ、蛇行して静脈瘤になります。",
+      reflux:true, varix:1, pressure:.45, pig:0, derm:0, ulcer:0, leak:0, warn:1, valveFail:true },
+    { title:"静脈のうっ滞",
+      text:"逆流で静脈圧が上がり続けると、皮膚に近い毛細血管から血液成分がしみ出します。ヘモジデリン（鉄）が沈着し、皮膚が褐色に変化します。",
+      reflux:true, varix:1, pressure:.72, pig:1, derm:0, ulcer:0, leak:1, warn:1, valveFail:true },
+    { title:"うっ滞性皮膚炎",
+      text:"慢性的な炎症で皮膚が赤くなり、かゆみ・落屑・硬化（脂肪皮膚硬化症）が現れます。多くは内くるぶし周囲（ガイター領域）に生じます。",
+      reflux:true, varix:1, pressure:.85, pig:1, derm:1, ulcer:0, leak:1, warn:1, valveFail:true },
+    { title:"潰瘍（うっ滞性潰瘍）",
+      text:"炎症とうっ滞がさらに進むと皮膚が破れ、治りにくい潰瘍ができます。適切な圧迫療法と、逆流の原因（静脈瘤）への治療が必要です。",
+      reflux:true, varix:1, pressure:.95, pig:1, derm:1, ulcer:1, leak:1, warn:1, valveFail:true }
+  ];
+
+  // ---------- element refs ----------
+  const $=id=>document.getElementById(id);
+  const bloodG=$("blood"), valvesG=$("valves"), pigG=$("pig"),
+        leakG=$("leak"), scaleG=$("scale");
+
+  // ---------- build valves ----------
+  // valve positions: [x, y, vessel]  vessel: 'S' super, 'D' deep, 'P' perforator idx
+  const valveDefs=[
+    {x:185,y:150,type:"S"}, {x:185,y:260,type:"S"}, {x:185,y:370,type:"S"}, {x:185,y:455,type:"S"},
+    {x:300,y:150,type:"D"}, {x:300,y:260,type:"D"}, {x:300,y:370,type:"D"}, {x:300,y:455,type:"D"}
+  ];
+  const valveEls=[];
+  valveDefs.forEach(v=>{
+    const g=document.createElementNS(SVG,"g");
+    const p=document.createElementNS(SVG,"path");
+    // chevron pointing up (flow up = closed one-way)
+    p.setAttribute("d",`M${v.x-8} ${v.y+6} L${v.x} ${v.y-5} L${v.x+8} ${v.y+6}`);
+    p.setAttribute("fill","none");
+    p.setAttribute("stroke","#eaf3ff");
+    p.setAttribute("stroke-width","3");
+    p.setAttribute("stroke-linecap","round");
+    p.setAttribute("stroke-linejoin","round");
+    g.appendChild(p);
+    valvesG.appendChild(g);
+    valveEls.push({g,p,def:v});
+  });
+
+  // ---------- build pigmentation spots ----------
+  const pigSpots=[[42,150],[58,180],[46,230],[64,270],[40,330],[60,360],[48,410],[66,300],[52,470],[44,120]];
+  pigSpots.forEach(([cx,cy])=>{
+    const c=document.createElementNS(SVG,"circle");
+    c.setAttribute("cx",cx);c.setAttribute("cy",cy);
+    c.setAttribute("r",5+Math.random()*4);
+    c.setAttribute("fill","#7c4a2b");c.setAttribute("opacity",".55");
+    c.setAttribute("filter","url(#soft)");
+    pigG.appendChild(c);
+  });
+  // scaling flakes
+  for(let i=0;i<14;i++){
+    const r=document.createElementNS(SVG,"rect");
+    r.setAttribute("x",34+Math.random()*60);
+    r.setAttribute("y",305+Math.random()*195);
+    r.setAttribute("width",4+Math.random()*5);
+    r.setAttribute("height",3);
+    r.setAttribute("rx",1);
+    r.setAttribute("transform",`rotate(${Math.random()*60-30} ${50} ${400})`);
+    scaleG.appendChild(r);
+  }
+
+  // ---------- blood particles ----------
+  // Each particle rides a "channel". Channels:
+  //  deep: x=300 y 500->75 (always up)
+  //  super: x=185 (up normal / down reflux)
+  //  perforators: 3 horizontal (super->deep normal / deep->super disease)
+  const channels={
+    deep:  {kind:"v", x:300, y0:500, y1:78},
+    super: {kind:"v", x:185, y0:500, y1:96},
+    p0:    {kind:"h", y:205, x0:196, x1:288},
+    p1:    {kind:"h", y:320, x0:196, x1:288},
+    p2:    {kind:"h", y:430, x0:196, x1:288}
+  };
+  const parts=[];
+  function addParts(ch,n,color){
+    for(let i=0;i<n;i++){
+      const c=document.createElementNS(SVG,"circle");
+      c.setAttribute("r","3.4");
+      c.setAttribute("fill",color||"var(--blood)");
+      bloodG.appendChild(c);
+      parts.push({el:c, ch, t:Math.random(), speed:0.05+Math.random()*0.03});
+    }
+  }
+  addParts("deep",8);
+  addParts("super",8);
+  addParts("p0",3);addParts("p1",3);addParts("p2",3);
+
+  // leaked dots (in tissue) — created on demand, animated outward
+  const leakDots=[];
+  function ensureLeak(){
+    if(leakDots.length) return;
+    const seeds=[[74,180],[74,260],[74,340],[74,410],[74,470],[74,140]];
+    seeds.forEach(([x,y])=>{
+      const c=document.createElementNS(SVG,"circle");
+      c.setAttribute("r","3");c.setAttribute("fill","#b23b4e");c.setAttribute("opacity","0");
+      leakG.appendChild(c);
+      leakDots.push({el:c,x0:x,y,phase:Math.random()});
+    });
+  }
+
+  // ---------- state ----------
+  let cur=0, playing=!reduce, dir=1;
+  const DWELL=4600; // ms per stage
+  let stageStart=performance.now();
+
+  // ---------- rendering state applied per stage ----------
+  function applyStage(i){
+    const s=stages[i];
+    $("stepNo").textContent=`段階 ${i+1} / 5`;
+    $("capTitle").textContent=s.title;
+    $("capText").textContent=s.text;
+
+    // track
+    [...$("track").children].forEach((b,idx)=>{
+      b.className = idx<i?"done":(idx===i?"active":"");
+    });
+    [...$("stagebtns").children].forEach((b,idx)=>{
+      b.classList.toggle("on",idx===i);
+    });
+
+    // superficial vein widening + varix
+    $("superVein").setAttribute("stroke-width", 18 + s.varix*14);
+    $("varix").setAttribute("opacity", s.varix?0.95:0);
+    if(s.varix){
+      // wavy bulge outline along superficial vein
+      $("varix").setAttribute("d",
+        "M170 130 q-16 24 4 46 q18 22 -2 44 q-16 22 4 46 q18 22 -2 46 "+
+        "q-14 22 6 44 l26 0 q-8 -30 4 -60 q10 -26 -2 -52 q-10 -24 2 -50 "+
+        "q10 -24 -2 -48 q-8 -20 4 -40 z");
+    }
+
+    // warning ring
+    $("warnRing").setAttribute("opacity", s.warn?1:0);
+
+    // valves visual (superficial ones fail)
+    valveEls.forEach(v=>{
+      const fail = s.valveFail && v.def.type==="S";
+      v.p.setAttribute("stroke", fail?"#ff5a5a":"#eaf3ff");
+      v.p.setAttribute("opacity", fail?"0.9":"1");
+      // failed valve: flip/open (point down + wider)
+      const y=v.def.y, x=v.def.x;
+      if(fail){
+        v.p.setAttribute("d",`M${x-9} ${y-6} L${x} ${y+6} L${x+9} ${y-6}`);
+      }else{
+        v.p.setAttribute("d",`M${x-8} ${y+6} L${x} ${y-5} L${x+8} ${y+6}`);
+      }
+    });
+
+    // skin overlays
+    pigG.setAttribute("opacity", s.pig);
+    $("derm").setAttribute("opacity", s.derm?0.42:0);
+    scaleG.setAttribute("opacity", s.derm?0.9:0);
+    $("ulcer").setAttribute("opacity", s.ulcer);
+    // when ulcer present, hide capillaries/derm under it a touch
+    $("caps").setAttribute("opacity", s.ulcer?0.25:0.55);
+
+    if(s.leak){ ensureLeak(); }
+    leakDots.forEach(d=>d.el.setAttribute("opacity", s.leak?0.85:0));
+
+    // pressure gauge
+    const full=300, h=Math.max(16, s.pressure*full);
+    const gf=$("gaugeFill");
+    gf.setAttribute("height",h);
+    gf.setAttribute("y", 450-h);
+    gf.setAttribute("fill", s.pressure<.35?"#57b06a": s.pressure<.7?"#e0a63a":"#d64b3f");
+  }
+
+  // ---------- particle animation ----------
+  function channelPos(ch, t){
+    const c=channels[ch.ch];
+    const s=stages[cur];
+    if(c.kind==="v"){
+      let y;
+      if(ch.ch==="deep"){
+        y=c.y0+(c.y1-c.y0)*t;            // always up
+      }else{ // super
+        if(s.reflux) y=c.y1+(c.y0-c.y1)*t; // downward reflux
+        else         y=c.y0+(c.y1-c.y0)*t; // up
+      }
+      return {x:c.x, y};
+    }else{ // horizontal perforator
+      if(s.reflux){ // deep -> super (reversed)
+        return {x:c.x1+(c.x0-c.x1)*t, y:c.y};
+      }else{        // super -> deep
+        return {x:c.x0+(c.x1-c.x0)*t, y:c.y};
+      }
+    }
+  }
+
+  let last=performance.now();
+  function frame(now){
+    const dt=Math.min(50, now-last); last=now;
+    const s=stages[cur];
+
+    // advance particles
+    const sp = s.reflux? 1.0 : 0.85;
+    parts.forEach(p=>{
+      p.t += p.speed*(dt/1000)*sp*3;
+      if(p.t>1) p.t-=1;
+      const pos=channelPos(p,p.t);
+      p.el.setAttribute("cx",pos.x);
+      p.el.setAttribute("cy",pos.y);
+      // reflux particles a bit larger/redder
+      p.el.setAttribute("r", (s.reflux && p.ch==="super")?4.2:3.4);
+    });
+
+    // leak dots pulse outward into tissue
+    if(s.leak){
+      leakDots.forEach(d=>{
+        d.phase+=dt/1400; if(d.phase>1) d.phase-=1;
+        const spread=d.phase*16;
+        d.el.setAttribute("cx", d.x0 - spread*0.4);
+        d.el.setAttribute("cy", d.y + Math.sin(d.phase*6.28)*3);
+        d.el.setAttribute("opacity", (0.9*(1-d.phase*0.4)).toFixed(2));
+        d.el.setAttribute("r",(2.5+d.phase*2).toFixed(1));
+      });
+    }
+
+    // warning ring pulse
+    if(s.warn){
+      const r=28+Math.sin(now/300)*3;
+      $("warnRing").setAttribute("r",r.toFixed(1));
+      $("warnRing").setAttribute("opacity",(0.65+Math.sin(now/300)*0.35).toFixed(2));
+    }
+
+    // autoplay advance
+    if(playing && now-stageStart>DWELL){
+      goto((cur+1)%stages.length, false);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- navigation ----------
+  function goto(i, manual){
+    cur=i; stageStart=performance.now();
+    applyStage(i);
+    if(manual){ /* keep playing state */ }
+  }
+
+  // build track + stage buttons
+  const labels=["正常","静脈瘤","うっ滞","皮膚炎","潰瘍"];
+  stages.forEach((s,i)=>{
+    const b=document.createElement("button");
+    b.setAttribute("aria-label",`段階${i+1} ${s.title}`);
+    b.onclick=()=>goto(i,true);
+    $("track").appendChild(b);
+
+    const sb=document.createElement("button");
+    sb.textContent=`${i+1}. ${labels[i]}`;
+    sb.onclick=()=>goto(i,true);
+    $("stagebtns").appendChild(sb);
+  });
+
+  $("playBtn").onclick=()=>{
+    playing=!playing;
+    $("playBtn").textContent=playing?"⏸ 一時停止":"▶ 再生";
+    if(playing) stageStart=performance.now();
+  };
+  $("replayBtn").onclick=()=>{ goto(0,true); playing=true; $("playBtn").textContent="⏸ 一時停止"; stageStart=performance.now(); };
+
+  if(reduce){ $("playBtn").textContent="▶ 再生"; }
+
+  applyStage(0);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
