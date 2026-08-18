@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<!--
+  App: prescription-order
+  Created: 2026-08-18
+  Description: 厚労省の薬価基準収載品目リスト(Excel/CSV)を読み込み、薬剤検索→処方(Rp)組み立て→JSON/CSVで電子カルテへ出力する処方オーダー作成ツール。よく使う処方の登録・パッドモード表示、AIによる定型処方候補の提案にも対応。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="color-scheme" content="light only">
+<title>処方オーダー作成</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js" crossorigin></script>
+<style>
+  :root { color-scheme: light only; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ============================================================
+// window.storage ポリフィル（localStorage を使った永続化）
+// 元のコードは Claude.ai アーティファクト専用の window.storage API に
+// 依存しているため、単体配布用にブラウザの localStorage で実装する。
+// ============================================================
+window.storage = {
+  async get(key) {
+    try {
+      const raw = localStorage.getItem("rxapp:" + key);
+      return raw === null ? null : { value: raw };
+    } catch (e) {
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      localStorage.setItem("rxapp:" + key, value);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+  async delete(key) {
+    try {
+      localStorage.removeItem("rxapp:" + key);
+    } catch (e) {}
+  },
+};
+
+// ============================================================
+// 初回起動時のデフォルト「よく使う処方」
+// （処方お気に入り.json の内容。初回のみ・保存済みデータが無い場合に使用）
+// ============================================================
+window.DEFAULT_FAVORITES = [
+  { "name": "桂枝茯苓丸エキス顆粒(コタロー) 2.5g", "dose": 4.5, "unit": "g", "usage": "分3 毎食前", "days": 14, "daysUnit": "日分", "cat": "内用" },
+  { "name": "桂枝茯苓丸エキス顆粒(ツムラ) 2.5g", "dose": 7.5, "unit": "g", "usage": "分3 毎食前", "days": 14, "daysUnit": "日分", "cat": "内用" },
+  { "name": "芍薬甘草湯エキス顆粒 2.5g", "dose": 7.5, "unit": "g", "usage": "分3 毎食前", "days": 14, "daysUnit": "日分", "cat": "内用" },
+  { "name": "芍薬甘草湯エキス顆粒 2.5g", "dose": 2.5, "unit": "g", "usage": "足が攣る時 頓用", "days": 20, "daysUnit": "回分", "cat": "内用" },
+  { "name": "アスピリン100mg腸溶錠(旧バイアスピリン)", "dose": 1, "unit": "錠", "usage": "分1 朝食後", "days": 28, "daysUnit": "日分", "cat": "内用" },
+  { "name": "ロキソプロフェン錠60mg", "dose": 2, "unit": "錠", "usage": "分2 朝夕食後", "days": 7, "daysUnit": "日分", "cat": "内用" },
+  { "name": "レバミピド錠100mg(ムコスタ)", "dose": 2, "unit": "錠", "usage": "分2 朝夕食後", "days": 7, "daysUnit": "日分", "cat": "内用" },
+  { "name": "アピキサバン錠2.5mg(エリキュース)", "dose": 2, "unit": "錠", "usage": "分2 朝夕", "days": 28, "daysUnit": "日分", "cat": "内用" },
+  { "name": "リバーロキサバン錠10mg(イグザレルト)", "dose": 1, "unit": "錠", "usage": "分1 朝食後", "days": 28, "daysUnit": "日分", "cat": "内用" },
+  { "name": "リバーロキサバン錠15mg(イグザレルト)", "dose": 1, "unit": "錠", "usage": "分1 朝食後", "days": 28, "daysUnit": "日分", "cat": "内用" },
+  { "name": "ヘパリン類似物質油性クリーム0.3%(ヒルドイド)", "dose": 1, "unit": "g", "usage": "1日数回 患部塗布", "days": 1, "daysUnit": "日分", "cat": "外用" }
+];
+</script>
+
+<script>
+const {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback
+} = React;
+
+// ============================================================
+// 処方オーダー作成ツール
+// 厚労省「薬価基準収載品目リスト」(Excel/CSV) を読み込み、
+// 薬剤検索 → 処方(Rp)組み立て → JSON/CSV で電子カルテへ出力
+// ============================================================
+
+const C = {
+  ink: "#1B2A4A",
+  // 濃紺(本文・見出し)
+  inkSoft: "#5A6478",
+  // 補助テキスト
+  paper: "#F7F6F2",
+  // 背景
+  panel: "#FFFFFF",
+  line: "#E3E1DA",
+  vermil: "#C73E2E",
+  // 朱(Rp印・主要アクション)
+  vermilSoft: "#FBEAE7",
+  green: "#2E7D62",
+  // 後発品マーカー
+  greenSoft: "#E8F3EE",
+  navySoft: "#EEF1F7"
+};
+const MONO = "ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, monospace";
+
+// ---------- 文字正規化(検索用) ----------
+const toKatakana = s => s.replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+const normalize = s => {
+  if (!s) return "";
+  let t = String(s).normalize("NFKC").toLowerCase();
+  t = toKatakana(t);
+  return t.replace(/\s+/g, "");
+};
+
+// ---------- 厚労省マスターのヘッダー検出 ----------
+const HEADER_PATTERNS = {
+  code: /コード/,
+  ingredient: /成分/,
+  spec: /規格/,
+  name: /品名/,
+  maker: /メーカー|会社/,
+  price: /薬価/,
+  genericInfo: /後発|有無/
+};
+function detectColumns(rows) {
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
+    const row = rows[r] || [];
+    const joined = row.map(c => String(c ?? "")).join("|");
+    if (/品名/.test(joined) && /薬価/.test(joined)) {
+      const cols = {};
+      row.forEach((cell, i) => {
+        const text = String(cell ?? "");
+        for (const [key, pat] of Object.entries(HEADER_PATTERNS)) {
+          if (cols[key] === undefined && pat.test(text)) cols[key] = i;
+        }
+      });
+      if (cols.name !== undefined) return {
+        headerRow: r,
+        cols
+      };
+    }
+  }
+  return null;
+}
+
+// シート名から剤形区分を推定
+function sheetCategory(name) {
+  if (/内用/.test(name)) return "内用";
+  if (/注射/.test(name)) return "注射";
+  if (/外用/.test(name)) return "外用";
+  if (/歯科/.test(name)) return "歯科";
+  return "";
+}
+function parseWorkbook(wb) {
+  const items = [];
+  const parsedSheets = [];
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    const rows = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+      defval: ""
+    });
+    const det = detectColumns(rows);
+    if (!det) continue;
+    const {
+      headerRow,
+      cols
+    } = det;
+    const cat = sheetCategory(sheetName);
+    let count = 0;
+    for (let r = headerRow + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const name = String(row[cols.name] ?? "").trim();
+      if (!name) continue;
+      const item = {
+        name,
+        spec: cols.spec !== undefined ? String(row[cols.spec] ?? "").trim() : "",
+        ingredient: cols.ingredient !== undefined ? String(row[cols.ingredient] ?? "").trim() : "",
+        maker: cols.maker !== undefined ? String(row[cols.maker] ?? "").trim() : "",
+        price: cols.price !== undefined ? String(row[cols.price] ?? "").trim() : "",
+        code: cols.code !== undefined ? String(row[cols.code] ?? "").trim() : "",
+        gen: cols.genericInfo !== undefined ? String(row[cols.genericInfo] ?? "").trim() : "",
+        cat
+      };
+      item.key = normalize(item.name + item.ingredient);
+      items.push(item);
+      count++;
+    }
+    if (count > 0) parsedSheets.push(`${sheetName}(${count})`);
+  }
+  return {
+    items,
+    parsedSheets
+  };
+}
+
+// ---------- 用法プリセット ----------
+const USAGE_PRESETS = ["1日3回 毎食後", "1日3回 毎食前", "1日2回 朝夕食後", "1日1回 朝食後", "1日1回 夕食後", "1日1回 就寝前", "疼痛時 頓用", "発熱時 頓用", "便秘時 頓用"];
+
+// ---------- オフライン定型処方辞書(AI接続不可時のフォールバック) ----------
+const LOCAL_RX_DB = (() => {
+  const D = {
+    loxo: {
+      name: "ロキソプロフェン錠60mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 7,
+      daysUnit: "日分",
+      note: "胃腸障害に注意・胃薬併用を考慮",
+      reason: "NSAIDsの定番"
+    },
+    calo: {
+      name: "カロナール錠500",
+      dose: 1,
+      unit: "錠",
+      usage: "疼痛時 頓用",
+      days: 10,
+      daysUnit: "回分",
+      note: "1日総量4000mgまで",
+      reason: "胃・腎にやさしい"
+    },
+    cele: {
+      name: "セレコックス錠100mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日2回 朝夕食後",
+      days: 7,
+      daysUnit: "日分",
+      note: "心血管リスクに注意",
+      reason: "COX-2選択的"
+    },
+    vol: {
+      name: "ボルタレン錠25mg",
+      dose: 1,
+      unit: "錠",
+      usage: "疼痛時 頓用",
+      days: 10,
+      daysUnit: "回分",
+      note: "消化性潰瘍に禁忌",
+      reason: "鎮痛効果強い"
+    },
+    take: {
+      name: "タケキャブ錠20mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日1回 朝食後",
+      days: 14,
+      daysUnit: "日分",
+      note: "長期投与は必要性を検討",
+      reason: "P-CAB"
+    },
+    muco: {
+      name: "ムコスタ錠100mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 14,
+      daysUnit: "日分",
+      note: "",
+      reason: "胃粘膜保護"
+    },
+    gast: {
+      name: "ガスターD錠20mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日2回 朝夕食後",
+      days: 14,
+      daysUnit: "日分",
+      note: "腎機能低下時は減量",
+      reason: "H2ブロッカー"
+    },
+    amox: {
+      name: "サワシリンカプセル250",
+      dose: 1,
+      unit: "カプセル",
+      usage: "1日3回 毎食後",
+      days: 5,
+      daysUnit: "日分",
+      note: "ペニシリンアレルギー確認",
+      reason: "第一選択が多い"
+    },
+    cefc: {
+      name: "フロモックス錠100mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 5,
+      daysUnit: "日分",
+      note: "",
+      reason: "セフェム系"
+    },
+    clar: {
+      name: "クラリス錠200",
+      dose: 1,
+      unit: "錠",
+      usage: "1日2回 朝夕食後",
+      days: 7,
+      daysUnit: "日分",
+      note: "併用禁忌が多い",
+      reason: "マクロライド系"
+    },
+    azm: {
+      name: "ジスロマック錠250mg",
+      dose: 2,
+      unit: "錠",
+      usage: "1日1回 朝食後",
+      days: 3,
+      daysUnit: "日分",
+      note: "3日で7日間効果",
+      reason: "服薬アドヒアランス良"
+    },
+    fexo: {
+      name: "アレグラ錠60mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日2回 朝夕",
+      days: 14,
+      daysUnit: "日分",
+      note: "",
+      reason: "眠気が少ない"
+    },
+    bila: {
+      name: "ビラノア錠20mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日1回 空腹時",
+      days: 14,
+      daysUnit: "日分",
+      note: "食後服用で効果減弱",
+      reason: "1日1回で強力"
+    },
+    dex: {
+      name: "メジコン錠15mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 7,
+      daysUnit: "日分",
+      note: "",
+      reason: "中枢性鎮咳薬"
+    },
+    tip: {
+      name: "アスベリン錠20",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 7,
+      daysUnit: "日分",
+      note: "",
+      reason: "去痰作用もあり"
+    },
+    mgo: {
+      name: "酸化マグネシウム錠330mg",
+      dose: 1,
+      unit: "錠",
+      usage: "1日3回 毎食後",
+      days: 14,
+      daysUnit: "日分",
+      note: "腎機能低下時は高Mg血症注意",
+      reason: "緩下剤の定番"
+    },
+    shak: {
+      name: "ツムラ芍薬甘草湯エキス顆粒 2.5g",
+      dose: 1,
+      unit: "包",
+      usage: "こむら返り時 頓用",
+      days: 10,
+      daysUnit: "回分",
+      note: "甘草—偽アルドステロン症注意",
+      reason: "こむら返りに即効"
+    },
+    kakk: {
+      name: "ツムラ葛根湯エキス顆粒 2.5g",
+      dose: 1,
+      unit: "包",
+      usage: "1日3回 毎食前",
+      days: 5,
+      daysUnit: "日分",
+      note: "",
+      reason: "感冒初期に"
+    }
+  };
+  return [{
+    match: ["ロキソニン", "ロキソプロフェン"],
+    items: [D.loxo]
+  }, {
+    match: ["カロナール", "アセトアミノフェン"],
+    items: [D.calo]
+  }, {
+    match: ["セレコックス", "セレコキシブ"],
+    items: [D.cele]
+  }, {
+    match: ["ボルタレン", "ジクロフェナク"],
+    items: [D.vol]
+  }, {
+    match: ["痛み止め", "鎮痛", "いたみ", "痛み", "頭痛", "腰痛"],
+    items: [D.loxo, D.calo, D.cele, D.vol]
+  }, {
+    match: ["タケキャブ", "ボノプラザン"],
+    items: [D.take]
+  }, {
+    match: ["ムコスタ", "レバミピド"],
+    items: [D.muco]
+  }, {
+    match: ["ガスター", "ファモチジン"],
+    items: [D.gast]
+  }, {
+    match: ["胃薬", "胃", "逆流", "胸やけ"],
+    items: [D.take, D.gast, D.muco]
+  }, {
+    match: ["サワシリン", "アモキシシリン"],
+    items: [D.amox]
+  }, {
+    match: ["フロモックス", "セフカペン"],
+    items: [D.cefc]
+  }, {
+    match: ["クラリス", "クラリスロマイシン"],
+    items: [D.clar]
+  }, {
+    match: ["ジスロマック", "アジスロマイシン"],
+    items: [D.azm]
+  }, {
+    match: ["抗生剤", "抗菌薬", "抗生物質"],
+    items: [D.amox, D.cefc, D.clar, D.azm]
+  }, {
+    match: ["アレグラ", "フェキソフェナジン"],
+    items: [D.fexo]
+  }, {
+    match: ["ビラノア", "ビラスチン"],
+    items: [D.bila]
+  }, {
+    match: ["アレルギー", "花粉症", "かゆみ", "じんましん", "蕁麻疹"],
+    items: [D.fexo, D.bila]
+  }, {
+    match: ["メジコン", "デキストロメトルファン"],
+    items: [D.dex]
+  }, {
+    match: ["アスベリン", "チペピジン"],
+    items: [D.tip]
+  }, {
+    match: ["咳止め", "咳", "せき"],
+    items: [D.dex, D.tip]
+  }, {
+    match: ["酸化マグネシウム", "マグミット", "便秘"],
+    items: [D.mgo]
+  }, {
+    match: ["芍薬甘草湯", "こむら返り", "こむらがえり", "足がつる"],
+    items: [D.shak]
+  }, {
+    match: ["葛根湯"],
+    items: [D.kakk]
+  }, {
+    match: ["風邪", "かぜ", "感冒"],
+    items: [D.kakk, D.calo, D.dex]
+  }];
+})();
+function localSuggest(qn) {
+  if (!qn) return null;
+  for (const e of LOCAL_RX_DB) {
+    if (e.match.some(m => {
+      const mn = normalize(m);
+      return qn.includes(mn) || mn.includes(qn);
+    })) return e.items;
+  }
+  return null;
+}
+
+// 規格から単位を推定
+function guessUnit(spec, cat) {
+  const s = spec || "";
+  if (/カプセル/.test(s)) return "カプセル";
+  if (/錠/.test(s)) return "錠";
+  if (/シロップ|内用液|液/.test(s) && /mL|ｍＬ/.test(s)) return "mL";
+  if (/散|細粒|顆粒|ドライシロップ/.test(s)) return "g";
+  if (/キット|シリンジ|筒|管|瓶|バイアル|アンプル/.test(s)) return "本";
+  if (/貼付|テープ|パップ/.test(s)) return "枚";
+  if (/坐剤/.test(s)) return "個";
+  if (cat === "注射") return "本";
+  return "錠";
+}
+function genId() {
+  return Math.random().toString(36).slice(2, 9);
+}
+function todayStr() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// ---------- 永続化 (window.storage) ----------
+async function storageGet(key) {
+  try {
+    if (!window.storage) return null;
+    const r = await window.storage.get(key);
+    return r ? JSON.parse(r.value) : null;
+  } catch {
+    return null;
+  }
+}
+async function storageSet(key, value) {
+  try {
+    if (!window.storage) return false;
+    await window.storage.set(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function storageDel(key) {
+  try {
+    if (window.storage) await window.storage.delete(key);
+  } catch {}
+}
+function PrescriptionComposer() {
+  const [master, setMaster] = useState([]);
+  const [masterInfo, setMasterInfo] = useState(null); // {file, sheets, savedAt}
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [rp, setRp] = useState([]);
+  const [patientId, setPatientId] = useState("");
+  const [rxDate, setRxDate] = useState(todayStr());
+  const [toast, setToast] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [showFav, setShowFav] = useState(false);
+  const [padMode, setPadMode] = useState(false);
+  const [favQuery, setFavQuery] = useState("");
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiCandidates, setAiCandidates] = useState([]);
+  const fileRef = useRef(null);
+  const toastTimer = useRef(null);
+  const notify = useCallback((msg, kind = "ok") => {
+    setToast({
+      msg,
+      kind
+    });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  // 起動時: 保存済みマスター・お気に入りを復元
+  useEffect(() => {
+    (async () => {
+      const fav = await storageGet("rx-favorites");
+      if (Array.isArray(fav) && fav.length > 0) {
+        setFavorites(fav);
+      } else {
+        // 保存済みデータが無ければ、あらかじめ用意した「よく使う処方」を初期値にする
+        setFavorites(window.DEFAULT_FAVORITES || []);
+      }
+      const pm = await storageGet("rx-pad-mode");
+      if (pm === true) setPadMode(true);
+      const meta = await storageGet("rx-master-meta");
+      if (meta && meta.chunks) {
+        try {
+          let all = [];
+          for (let i = 0; i < meta.chunks; i++) {
+            const part = await storageGet(`rx-master-${i}`);
+            if (!Array.isArray(part)) throw new Error("chunk missing");
+            all = all.concat(part);
+          }
+          all.forEach(it => it.key = normalize(it.name + (it.ingredient || "")));
+          setMaster(all);
+          setMasterInfo({
+            ...meta,
+            restored: true
+          });
+        } catch {
+          /* 復元失敗時は未読込のまま */
+        }
+      }
+    })();
+  }, []);
+
+  // ---------- ファイル読み込み ----------
+  const handleFile = async file => {
+    if (!file) return;
+    setLoading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {
+        type: "array"
+      }); // xlsx は csv も読める
+      const {
+        items,
+        parsedSheets
+      } = parseWorkbook(wb);
+      if (items.length === 0) {
+        notify("品目を検出できませんでした。「品名」「薬価」列を含むファイルか確認してください", "err");
+      } else {
+        setMaster(items);
+        setMasterInfo({
+          file: file.name,
+          sheets: parsedSheets,
+          count: items.length,
+          loadedAt: todayStr()
+        });
+        notify(`${items.length.toLocaleString()} 品目を読み込みました`);
+      }
+    } catch (e) {
+      notify("読み込みに失敗しました: " + (e?.message || ""), "err");
+    } finally {
+      setLoading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  // ---------- マスターをブラウザに保存 ----------
+  const saveMaster = async () => {
+    if (master.length === 0) return;
+    const slim = master.map(({
+      key,
+      ...rest
+    }) => rest);
+    const CHUNK = 3000;
+    const chunks = [];
+    for (let i = 0; i < slim.length; i += CHUNK) chunks.push(slim.slice(i, i + CHUNK));
+    let ok = true;
+    for (let i = 0; i < chunks.length; i++) {
+      if (!(await storageSet(`rx-master-${i}`, chunks[i]))) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      await storageSet("rx-master-meta", {
+        file: masterInfo?.file || "",
+        count: master.length,
+        chunks: chunks.length,
+        loadedAt: masterInfo?.loadedAt || todayStr()
+      });
+      notify("マスターを保存しました。次回から自動で復元されます");
+    } else {
+      notify("保存に失敗しました(容量超過の可能性)", "err");
+    }
+  };
+  const clearMaster = async () => {
+    const meta = await storageGet("rx-master-meta");
+    if (meta && meta.chunks) {
+      for (let i = 0; i < meta.chunks; i++) await storageDel(`rx-master-${i}`);
+    }
+    await storageDel("rx-master-meta");
+    setMaster([]);
+    setMasterInfo(null);
+    notify("マスターを削除しました");
+  };
+
+  // ---------- 検索 ----------
+  const results = useMemo(() => {
+    const q = normalize(query);
+    if (!q || q.length < 1 || master.length === 0) return [];
+    const hits = [];
+    for (const it of master) {
+      if (it.key.includes(q)) {
+        hits.push(it);
+        if (hits.length >= 60) break;
+      }
+    }
+    return hits;
+  }, [query, master]);
+
+  // ---------- 処方リスト操作 ----------
+  const addItem = drug => {
+    setRp(prev => [...prev, {
+      id: genId(),
+      code: drug.code || "",
+      name: drug.name,
+      spec: drug.spec || "",
+      price: drug.price || "",
+      gen: drug.gen || "",
+      cat: drug.cat || "",
+      dose: 1,
+      unit: guessUnit(drug.spec, drug.cat),
+      usage: drug.usage || USAGE_PRESETS[0],
+      days: drug.days ?? 7,
+      daysUnit: drug.daysUnit || "日分",
+      note: ""
+    }]);
+    setQuery("");
+  };
+  const addManual = () => {
+    setRp(prev => [...prev, {
+      id: genId(),
+      code: "",
+      name: "",
+      spec: "",
+      price: "",
+      gen: "",
+      cat: "",
+      dose: 1,
+      unit: "錠",
+      usage: USAGE_PRESETS[0],
+      days: 7,
+      daysUnit: "日分",
+      note: "",
+      manual: true
+    }]);
+  };
+  const updateItem = (id, patch) => setRp(prev => prev.map(it => it.id === id ? {
+    ...it,
+    ...patch
+  } : it));
+  const removeItem = id => setRp(prev => prev.filter(it => it.id !== id));
+  const moveItem = (id, dir) => setRp(prev => {
+    const i = prev.findIndex(it => it.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= prev.length) return prev;
+    const next = [...prev];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
+
+  // ---------- お気に入り ----------
+  const addFavorite = async item => {
+    const fav = {
+      code: item.code,
+      name: item.name,
+      spec: item.spec,
+      price: item.price,
+      gen: item.gen,
+      cat: item.cat,
+      usage: item.usage,
+      days: item.days,
+      daysUnit: item.daysUnit,
+      dose: item.dose,
+      unit: item.unit
+    };
+    const next = [fav, ...favorites.filter(f => !(f.name === fav.name && f.spec === fav.spec))].slice(0, 30);
+    setFavorites(next);
+    await storageSet("rx-favorites", next);
+    notify("よく使う処方に登録しました");
+  };
+  const removeFavorite = async idx => {
+    const next = favorites.filter((_, i) => i !== idx);
+    setFavorites(next);
+    await storageSet("rx-favorites", next);
+  };
+  const addFromFavorite = f => {
+    setRp(prev => [...prev, {
+      ...f,
+      id: genId(),
+      note: "",
+      dose: f.dose ?? 1,
+      days: f.days ?? 7
+    }]);
+  };
+
+  // ---------- パッドモード ----------
+  const togglePadMode = async () => {
+    const next = !padMode;
+    setPadMode(next);
+    await storageSet("rx-pad-mode", next);
+  };
+  const favFiltered = useMemo(() => {
+    const q = normalize(favQuery);
+    if (!q) return favorites;
+    return favorites.filter(f => normalize(String(f.name) + String(f.usage || "")).includes(q));
+  }, [favorites, favQuery]);
+
+  // ---------- AI定型処方提案 ----------
+  const aiSuggest = async () => {
+    const q = aiQuery.trim();
+    if (!q || aiLoading) return;
+    setAiLoading(true);
+    setAiCandidates([]);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1500,
+          messages: [{
+            role: "user",
+            content: `あなたは日本の医師向け処方入力支援アシスタントです。入力「${q}」に対して、日本の添付文書に基づく成人の標準的・定型的な処方候補をJSON配列のみで返してください。\n- 入力が特定の薬剤名なら、その薬剤の定型処方を1件(規格違いや用法違いが一般的なら最大3件)\n- 入力が症状や分類(例: 痛み止め、抗生剤、胃薬、咳止め)なら、代表的な薬剤を3〜5件\n- 前置き・説明・コードブロック記号は一切不要。次の形式の配列のみを返す:\n[{"name":"代表的な製品名または一般名(規格を含む)","dose":1回量の数値,"unit":"錠・カプセル・g・mL・包 など","usage":"「1日3回 毎食後」のような用法","days":日数の数値,"daysUnit":"日分","note":"重要な注意を30字以内","reason":"選択の目安を15字以内"}]\n- 頓用が一般的な薬剤は usage を「疼痛時 頓用」等とし、daysUnit を「回分」、days を標準的な回数に\n- 候補がない場合は [] のみを返す`
+          }]
+        })
+      });
+      const data = await res.json();
+      if (data.type === "error" || data.error) {
+        const local = localSuggest(normalize(q));
+        if (local) {
+          setAiCandidates(local);
+          notify("AI接続不可 — 内蔵の定型辞書から候補を表示(要確認)");
+        } else {
+          notify(`APIエラー: ${data.error?.message || JSON.stringify(data.error)}`, "err");
+        }
+        return;
+      }
+      const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+      const m = text.match(/\[[\s\S]*\]/);
+      if (!m) {
+        notify("AI応答を解析できませんでした: " + text.slice(0, 60), "err");
+        return;
+      }
+      const arr = JSON.parse(m[0]);
+      if (!Array.isArray(arr) || arr.length === 0) {
+        notify("候補が見つかりませんでした", "err");
+        return;
+      }
+      setAiCandidates(arr.slice(0, 5));
+      notify(`${Math.min(arr.length, 5)}件の候補 — タップでRpに追加`);
+    } catch (e) {
+      const local = localSuggest(normalize(q));
+      if (local) {
+        setAiCandidates(local);
+        notify("AI接続不可 — 内蔵の定型辞書から候補を表示(要確認)");
+      } else {
+        notify(`AI提案の取得に失敗: ${e?.message || e} — 辞書にも該当なし`, "err");
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // 候補をマスターと突合してRpへ
+  const addAiCandidate = s => {
+    let hit = null;
+    if (master.length) {
+      const keys = [normalize(String(s.name || "")), normalize(aiQuery)];
+      for (const k of keys) {
+        if (!k) continue;
+        const probes = [k, k.replace(/[0-9.]+(mg|g|ml|μg|mcg|%)?/g, ""), k.slice(0, 6)];
+        for (const pr of probes) {
+          if (!pr) continue;
+          const cands = master.filter(it => it.key.includes(pr));
+          if (cands.length) {
+            hit = cands.slice(0, 60).sort((a, b) => a.name.length - b.name.length)[0];
+            break;
+          }
+        }
+        if (hit) break;
+      }
+    }
+    setRp(prev => [...prev, {
+      id: genId(),
+      code: hit?.code || "",
+      name: hit?.name || s.name || "",
+      spec: hit?.spec || "",
+      price: hit?.price || "",
+      gen: hit?.gen || "",
+      cat: hit?.cat || "",
+      dose: s.dose ?? 1,
+      unit: s.unit || (hit ? guessUnit(hit.spec, hit.cat) : "錠"),
+      usage: s.usage || USAGE_PRESETS[0],
+      days: s.days ?? 7,
+      daysUnit: s.daysUnit || "日分",
+      note: s.note ? `AI提案: ${s.note}` : "AI提案 — 要確認",
+      manual: !hit
+    }]);
+    notify(hit ? "Rpに追加しました(マスター突合済み・内容を確認してください)" : "Rpに追加しました(マスター未突合・内容を確認してください)");
+  };
+
+  // ---------- 出力 ----------
+  const buildExport = () => ({
+    type: "prescription",
+    exportedAt: new Date().toISOString(),
+    prescriptionDate: rxDate,
+    patientId: patientId || null,
+    source: masterInfo ? {
+      file: masterInfo.file,
+      itemCount: masterInfo.count,
+      loadedAt: masterInfo.loadedAt
+    } : null,
+    items: rp.map((it, i) => ({
+      rp: i + 1,
+      yjCode: it.code || null,
+      name: it.name,
+      spec: it.spec || null,
+      dose: Number(it.dose) || null,
+      doseUnit: it.unit || null,
+      usage: it.usage,
+      duration: Number(it.days) || null,
+      durationUnit: it.daysUnit,
+      note: it.note || null,
+      price: it.price || null,
+      genericClass: it.gen || null,
+      category: it.cat || null
+    }))
+  });
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notify(`${label}をコピーしました`);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        notify(`${label}をコピーしました`);
+      } catch {
+        notify("コピーに失敗しました", "err");
+      }
+    }
+  };
+  const exportJson = () => copyText(JSON.stringify(buildExport(), null, 2), "JSON");
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify(buildExport(), null, 2)], {
+      type: "application/json"
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `prescription_${rxDate}${patientId ? "_" + patientId : ""}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const exportCsv = () => {
+    const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const head = ["Rp", "医薬品コード", "品名", "規格", "1回量", "単位", "用法", "期間", "期間単位", "備考", "薬価"];
+    const lines = [head.join(",")];
+    rp.forEach((it, i) => {
+      lines.push([i + 1, it.code, it.name, it.spec, it.dose, it.unit, it.usage, it.days, it.daysUnit, it.note, it.price].map(esc).join(","));
+    });
+    copyText(lines.join("\n"), "CSV");
+  };
+  const genBadge = gen => {
+    if (!gen) return null;
+    const isGen = /3|★/.test(gen);
+    const hasGen = /2|☆/.test(gen);
+    if (isGen) return /*#__PURE__*/React.createElement("span", {
+      className: "text-xs px-1.5 py-0.5 rounded",
+      style: {
+        background: C.greenSoft,
+        color: C.green
+      }
+    }, "\u5F8C\u767A");
+    if (hasGen) return /*#__PURE__*/React.createElement("span", {
+      className: "text-xs px-1.5 py-0.5 rounded",
+      style: {
+        background: C.navySoft,
+        color: C.inkSoft
+      }
+    }, "\u5148\u767A(\u5F8C\u767A\u3042\u308A)");
+    return /*#__PURE__*/React.createElement("span", {
+      className: "text-xs px-1.5 py-0.5 rounded",
+      style: {
+        background: C.navySoft,
+        color: C.inkSoft
+      }
+    }, "\u5148\u767A");
+  };
+  const inputStyle = {
+    border: `1px solid ${C.line}`,
+    color: C.ink,
+    background: "#fff"
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.paper,
+      color: C.ink,
+      minHeight: "100vh"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "max-w-6xl mx-auto px-4 py-6"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "flex flex-wrap items-end justify-between gap-3 pb-4 mb-5",
+    style: {
+      borderBottom: `2px solid ${C.ink}`
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs tracking-widest",
+    style: {
+      color: C.inkSoft
+    }
+  }, padMode ? "☆登録した処方だけを表示中" : "薬価基準収載品目リスト準拠"), /*#__PURE__*/React.createElement("h1", {
+    className: "text-2xl font-bold",
+    style: {
+      letterSpacing: "0.05em"
+    }
+  }, "\u51E6\u65B9\u30AA\u30FC\u30C0\u30FC\u4F5C\u6210")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 flex-wrap"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: togglePadMode,
+    className: "text-sm px-4 py-2 rounded font-medium",
+    style: {
+      background: padMode ? C.vermil : C.panel,
+      color: padMode ? "#fff" : C.ink,
+      border: `1px solid ${padMode ? C.vermil : C.line}`
+    }
+  }, padMode ? "通常モードへ" : "パッドモード"), !padMode && /*#__PURE__*/React.createElement(React.Fragment, null, masterInfo ? /*#__PURE__*/React.createElement("div", {
+    className: "text-xs px-3 py-1.5 rounded-full flex items-center gap-2",
+    style: {
+      background: C.greenSoft,
+      color: C.green
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO
+    }
+  }, masterInfo.count?.toLocaleString(), "\u54C1\u76EE"), /*#__PURE__*/React.createElement("span", {
+    className: "truncate max-w-40"
+  }, masterInfo.restored ? "保存済みマスター" : masterInfo.file)) : /*#__PURE__*/React.createElement("div", {
+    className: "text-xs px-3 py-1.5 rounded-full",
+    style: {
+      background: C.vermilSoft,
+      color: C.vermil
+    }
+  }, "\u30DE\u30B9\u30BF\u30FC\u672A\u8AAD\u8FBC"), /*#__PURE__*/React.createElement("input", {
+    ref: fileRef,
+    type: "file",
+    accept: ".xlsx,.xls,.csv",
+    className: "hidden",
+    onChange: e => handleFile(e.target.files?.[0])
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => fileRef.current?.click(),
+    disabled: loading,
+    className: "text-sm px-4 py-2 rounded font-medium",
+    style: {
+      background: C.ink,
+      color: "#fff",
+      opacity: loading ? 0.6 : 1
+    }
+  }, loading ? "読み込み中…" : "マスター読込")))), !padMode && !masterInfo && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-lg p-4 mb-5 text-sm leading-relaxed",
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "font-medium mb-1"
+  }, "\u306F\u3058\u3081\u306B: \u539A\u52B4\u7701\u30DE\u30B9\u30BF\u30FC\u3092\u8AAD\u307F\u8FBC\u3093\u3067\u304F\u3060\u3055\u3044"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u539A\u52B4\u7701\u300C\u85AC\u4FA1\u57FA\u6E96\u53CE\u8F09\u54C1\u76EE\u30EA\u30B9\u30C8\u53CA\u3073\u5F8C\u767A\u533B\u85AC\u54C1\u306B\u95A2\u3059\u308B\u60C5\u5831\u306B\u3064\u3044\u3066\u300D (mhlw.go.jp/topics/2026/04/tp20260401-01.html) \u304B\u3089\u6700\u65B0\u306EExcel\u30D5\u30A1\u30A4\u30EB\u3092 \u30C0\u30A6\u30F3\u30ED\u30FC\u30C9\u3057\u3001\u53F3\u4E0A\u306E\u300C\u30DE\u30B9\u30BF\u30FC\u8AAD\u8FBC\u300D\u3067\u9078\u629E\u3057\u307E\u3059\u3002\u5185\u7528\u30FB\u6CE8\u5C04\u30FB\u5916\u7528\u30FB\u6B6F\u79D1\u306E \u5404\u30B7\u30FC\u30C8\u3092\u81EA\u52D5\u3067\u89E3\u6790\u3057\u307E\u3059\u3002\u30DE\u30B9\u30BF\u30FC\u304C\u306A\u304F\u3066\u3082\u300C\u624B\u5165\u529B\u3067\u8FFD\u52A0\u300D\u306F\u4F7F\u3048\u307E\u3059\u3002")), !padMode && masterInfo && !masterInfo.restored && /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3 mb-5 text-xs",
+    style: {
+      color: C.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: saveMaster,
+    className: "px-3 py-1.5 rounded",
+    style: {
+      border: `1px solid ${C.line}`,
+      background: C.panel
+    }
+  }, "\u3053\u306E\u30DE\u30B9\u30BF\u30FC\u3092\u30D6\u30E9\u30A6\u30B6\u306B\u4FDD\u5B58(\u6B21\u56DE\u81EA\u52D5\u5FA9\u5143)"), masterInfo.sheets && /*#__PURE__*/React.createElement("span", null, "\u89E3\u6790: ", masterInfo.sheets.join(" / "))), !padMode && masterInfo?.restored && /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3 mb-5 text-xs",
+    style: {
+      color: C.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u4FDD\u5B58\u6E08\u307F\u30DE\u30B9\u30BF\u30FC\u3092\u5FA9\u5143\u3057\u307E\u3057\u305F(", masterInfo.loadedAt, " \u8AAD\u8FBC\u5206)"), /*#__PURE__*/React.createElement("button", {
+    onClick: clearMaster,
+    className: "px-3 py-1.5 rounded",
+    style: {
+      border: `1px solid ${C.line}`,
+      background: C.panel
+    }
+  }, "\u524A\u9664\u3057\u3066\u8AAD\u307F\u76F4\u3059")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-5 gap-5"
+  }, /*#__PURE__*/React.createElement("section", {
+    className: "lg:col-span-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-lg p-4",
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`
+    }
+  }, padMode ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-bold tracking-wide"
+  }, "\u3088\u304F\u4F7F\u3046\u51E6\u65B9 (", favorites.length, ")")), /*#__PURE__*/React.createElement("input", {
+    value: favQuery,
+    onChange: e => setFavQuery(e.target.value),
+    placeholder: "\u304A\u6C17\u306B\u5165\u308A\u5185\u3092\u691C\u7D22(\u3072\u3089\u304C\u306A\u53EF)",
+    className: "w-full px-3 py-2 rounded text-sm mb-2",
+    style: inputStyle
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1 max-h-96 overflow-y-auto"
+  }, favorites.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs py-4 text-center",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u901A\u5E38\u30E2\u30FC\u30C9\u306E\u51E6\u65B9\u6B04\u3067\u300C\u2606\u767B\u9332\u300D\u3059\u308B\u3068\u3001\u3053\u3053\u306B\u8868\u793A\u3055\u308C\u307E\u3059"), favQuery && favFiltered.length === 0 && favorites.length > 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs py-4 text-center",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u8A72\u5F53\u306A\u3057"), favFiltered.map((f, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "flex items-center gap-2 p-2.5 rounded text-sm",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => addFromFavorite(f),
+    className: "flex-1 text-left"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium leading-tight"
+  }, f.name), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mt-0.5",
+    style: {
+      color: C.inkSoft
+    }
+  }, f.dose, f.unit, " \u30FB ", f.usage, " \u30FB ", f.days, f.daysUnit), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mt-0.5",
+    style: {
+      color: C.vermil
+    }
+  }, "+ Rp\u306B\u8FFD\u52A0")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeFavorite(favorites.indexOf(f)),
+    className: "text-xs px-1.5",
+    style: {
+      color: C.inkSoft
+    },
+    title: "\u304A\u6C17\u306B\u5165\u308A\u304B\u3089\u524A\u9664"
+  }, "\u2715"))))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-bold tracking-wide"
+  }, "\u85AC\u5264\u691C\u7D22"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowFav(v => !v),
+    className: "text-xs px-2 py-1 rounded",
+    style: {
+      background: showFav ? C.ink : C.navySoft,
+      color: showFav ? "#fff" : C.inkSoft
+    }
+  }, "\u3088\u304F\u4F7F\u3046\u51E6\u65B9 (", favorites.length, ")")), showFav ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1 max-h-96 overflow-y-auto"
+  }, favorites.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs py-4 text-center",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u51E6\u65B9\u6B04\u306E\u300C\u2606\u767B\u9332\u300D\u3067\u85AC\u5264\u3068\u7528\u6CD5\u3092\u30BB\u30C3\u30C8\u3067\u4FDD\u5B58\u3067\u304D\u307E\u3059"), favorites.map((f, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "flex items-center gap-2 p-2 rounded text-sm",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => addFromFavorite(f),
+    className: "flex-1 text-left"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium leading-tight"
+  }, f.name), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs",
+    style: {
+      color: C.inkSoft
+    }
+  }, f.dose, f.unit, " ", f.usage, " ", f.days, f.daysUnit)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeFavorite(i),
+    className: "text-xs px-1.5",
+    style: {
+      color: C.inkSoft
+    },
+    title: "\u524A\u9664"
+  }, "\u2715")))), favorites.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => copyText(JSON.stringify(favorites, null, 2), "お気に入りJSON"),
+    className: "w-full mt-2 py-1.5 rounded text-xs",
+    style: {
+      border: `1px solid ${C.line}`,
+      color: C.inkSoft
+    }
+  }, "\u304A\u6C17\u306B\u5165\u308A\u3092\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8(JSON\u30B3\u30D4\u30FC) \u2014 \u51E6\u65B9\u30D1\u30C3\u30C9\u306B\u8CBC\u308A\u4ED8\u3051")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    placeholder: master.length ? "品名・成分名で検索(ひらがな可)" : "マスター読込後に検索できます",
+    className: "w-full px-3 py-2 rounded text-sm mb-2",
+    style: inputStyle,
+    disabled: master.length === 0
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "max-h-96 overflow-y-auto space-y-1"
+  }, query && results.length === 0 && master.length > 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs py-4 text-center",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u8A72\u5F53\u306A\u3057 \u2014 \u300C\u624B\u5165\u529B\u3067\u8FFD\u52A0\u300D\u3082\u4F7F\u3048\u307E\u3059"), results.map((d, i) => /*#__PURE__*/React.createElement("button", {
+    key: i,
+    onClick: () => addItem(d),
+    className: "w-full text-left p-2 rounded text-sm hover:opacity-80",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-start justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-medium leading-tight"
+  }, d.name), genBadge(d.gen)), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-x-3 text-xs mt-0.5",
+    style: {
+      color: C.inkSoft
+    }
+  }, d.spec && /*#__PURE__*/React.createElement("span", null, d.spec), d.price && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: MONO
+    }
+  }, "\xA5", d.price), d.cat && /*#__PURE__*/React.createElement("span", null, d.cat), d.maker && /*#__PURE__*/React.createElement("span", null, d.maker)))))), /*#__PURE__*/React.createElement("button", {
+    onClick: addManual,
+    className: "w-full mt-3 py-2 rounded text-sm",
+    style: {
+      border: `1px dashed ${C.inkSoft}`,
+      color: C.inkSoft
+    }
+  }, "+ \u624B\u5165\u529B\u3067\u8FFD\u52A0")), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 pt-3",
+    style: {
+      borderTop: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-bold mb-1.5",
+    style: {
+      color: C.inkSoft,
+      letterSpacing: "0.08em"
+    }
+  }, "AI\u5B9A\u578B\u51E6\u65B9 \u2014 \u85AC\u5264\u540D\u3060\u3051\u3067\u7528\u6CD5\u7528\u91CF\u3092\u63D0\u6848"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: aiQuery,
+    onChange: e => setAiQuery(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") aiSuggest();
+    },
+    placeholder: "\u4F8B: \u30ED\u30AD\u30BD\u30CB\u30F3 / \u75DB\u307F\u6B62\u3081",
+    className: "flex-1 px-3 py-2 rounded text-sm min-w-0",
+    style: inputStyle
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: aiSuggest,
+    disabled: aiLoading,
+    className: "px-4 py-2 rounded text-sm font-medium shrink-0",
+    style: {
+      background: C.ink,
+      color: "#fff",
+      opacity: aiLoading ? 0.6 : 1
+    }
+  }, aiLoading ? "検索中…" : "AIに聞く")), aiCandidates.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 space-y-1"
+  }, aiCandidates.map((c, i) => /*#__PURE__*/React.createElement("button", {
+    key: i,
+    onClick: () => addAiCandidate(c),
+    className: "w-full text-left p-2.5 rounded text-sm",
+    style: {
+      border: `1px solid ${C.line}`,
+      background: C.navySoft
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-medium leading-tight"
+  }, c.name), c.reason && /*#__PURE__*/React.createElement("span", {
+    className: "text-xs px-1.5 py-0.5 rounded shrink-0",
+    style: {
+      background: "#fff",
+      color: C.inkSoft
+    }
+  }, c.reason)), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mt-0.5",
+    style: {
+      color: C.inkSoft
+    }
+  }, c.dose, c.unit, " \u30FB ", c.usage, " \u30FB ", c.days, c.daysUnit, c.note ? ` ・ ${c.note}` : ""), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mt-0.5",
+    style: {
+      color: C.vermil
+    }
+  }, "+ Rp\u306B\u8FFD\u52A0"))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAiCandidates([]),
+    className: "text-xs px-1",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u5019\u88DC\u3092\u9589\u3058\u308B")), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs mt-1.5 leading-relaxed",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u85AC\u5264\u540D\u3067\u3082\u300C\u75DB\u307F\u6B62\u3081\u300D\u306E\u3088\u3046\u306A\u5206\u985E\u3067\u3082OK\u3002\u6DFB\u4ED8\u6587\u66F8\u30D9\u30FC\u30B9\u306E\u6210\u4EBA\u6A19\u6E96\u7528\u6CD5\u3092\u5019\u88DC\u3068\u3057\u3066\u63D0\u793A\u3057\u3001 \u30BF\u30C3\u30D7\u3067\u30DE\u30B9\u30BF\u30FC\u3068\u7A81\u5408\u3057\u3066Rp\u306B\u8FFD\u52A0\u3057\u307E\u3059\u3002\u63D0\u6848\u306F\u4E0B\u66F8\u304D\u3067\u3059\u3002\u5FC5\u305A\u533B\u5E2B\u306E\u5224\u65AD\u3067\u78BA\u8A8D\u30FB\u4FEE\u6B63\u3057\u3066\u304F\u3060\u3055\u3044\u3002")))), /*#__PURE__*/React.createElement("section", {
+    className: "lg:col-span-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-lg p-4",
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-3 mb-4"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-bold tracking-wide flex-1"
+  }, "\u51E6\u65B9\u6B04"), /*#__PURE__*/React.createElement("label", {
+    className: "text-xs flex items-center gap-1.5",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u60A3\u8005ID", /*#__PURE__*/React.createElement("input", {
+    value: patientId,
+    onChange: e => setPatientId(e.target.value),
+    className: "px-2 py-1 rounded w-28 text-sm",
+    style: {
+      ...inputStyle,
+      fontFamily: MONO
+    },
+    placeholder: "\u4EFB\u610F"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "text-xs flex items-center gap-1.5",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u51E6\u65B9\u65E5", /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: rxDate,
+    onChange: e => setRxDate(e.target.value),
+    className: "px-2 py-1 rounded text-sm",
+    style: inputStyle
+  }))), rp.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-center py-10",
+    style: {
+      color: C.inkSoft
+    }
+  }, padMode ? "左のお気に入りをタップすると Rp に追加されます" : "左の検索結果をタップすると Rp に追加されます"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, rp.map((it, i) => /*#__PURE__*/React.createElement("div", {
+    key: it.id,
+    className: "flex gap-3 p-3 rounded",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col items-center gap-1 shrink-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-bold px-1.5 py-1 rounded",
+    style: {
+      color: C.vermil,
+      border: `1.5px solid ${C.vermil}`,
+      fontFamily: MONO
+    }
+  }, "Rp.", i + 1), /*#__PURE__*/React.createElement("button", {
+    onClick: () => moveItem(it.id, -1),
+    className: "text-xs",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u25B2"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => moveItem(it.id, 1),
+    className: "text-xs",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u25BC")), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-0"
+  }, it.manual ? /*#__PURE__*/React.createElement("input", {
+    value: it.name,
+    onChange: e => updateItem(it.id, {
+      name: e.target.value
+    }),
+    placeholder: "\u85AC\u5264\u540D\u3092\u5165\u529B",
+    className: "w-full px-2 py-1 rounded text-sm font-medium mb-1",
+    style: inputStyle
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "flex items-start justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium text-sm leading-snug"
+  }, it.name, it.spec && /*#__PURE__*/React.createElement("span", {
+    className: "ml-2 text-xs font-normal",
+    style: {
+      color: C.inkSoft
+    }
+  }, it.spec)), genBadge(it.gen)), it.code && /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mt-0.5",
+    style: {
+      color: C.inkSoft,
+      fontFamily: MONO
+    }
+  }, it.code, it.price && /*#__PURE__*/React.createElement("span", {
+    className: "ml-3"
+  }, "\xA5", it.price)), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 mt-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    step: "0.25",
+    value: it.dose,
+    onChange: e => updateItem(it.id, {
+      dose: e.target.value
+    }),
+    className: "w-16 px-2 py-1 rounded text-sm text-right",
+    style: {
+      ...inputStyle,
+      fontFamily: MONO
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    value: it.unit,
+    onChange: e => updateItem(it.id, {
+      unit: e.target.value
+    }),
+    className: "w-16 px-2 py-1 rounded text-sm",
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement("select", {
+    value: USAGE_PRESETS.includes(it.usage) ? it.usage : "__free__",
+    onChange: e => updateItem(it.id, {
+      usage: e.target.value === "__free__" ? "" : e.target.value
+    }),
+    className: "px-2 py-1 rounded text-sm",
+    style: inputStyle
+  }, USAGE_PRESETS.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u,
+    value: u
+  }, u)), /*#__PURE__*/React.createElement("option", {
+    value: "__free__"
+  }, "\u81EA\u7531\u5165\u529B\u2026")), !USAGE_PRESETS.includes(it.usage) && /*#__PURE__*/React.createElement("input", {
+    value: it.usage,
+    onChange: e => updateItem(it.id, {
+      usage: e.target.value
+    }),
+    placeholder: "\u7528\u6CD5\u3092\u5165\u529B",
+    className: "px-2 py-1 rounded text-sm flex-1 min-w-32",
+    style: inputStyle
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: it.days,
+    onChange: e => updateItem(it.id, {
+      days: e.target.value
+    }),
+    className: "w-14 px-2 py-1 rounded text-sm text-right",
+    style: {
+      ...inputStyle,
+      fontFamily: MONO
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: it.daysUnit,
+    onChange: e => updateItem(it.id, {
+      daysUnit: e.target.value
+    }),
+    className: "px-1 py-1 rounded text-sm",
+    style: inputStyle
+  }, /*#__PURE__*/React.createElement("option", null, "\u65E5\u5206"), /*#__PURE__*/React.createElement("option", null, "\u56DE\u5206")))), /*#__PURE__*/React.createElement("input", {
+    value: it.note,
+    onChange: e => updateItem(it.id, {
+      note: e.target.value
+    }),
+    placeholder: "\u5099\u8003(\u7C89\u7815\u53EF\u30FB\u4E00\u5305\u5316\u306A\u3069)",
+    className: "w-full mt-2 px-2 py-1 rounded text-xs",
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col items-end justify-between shrink-0"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeItem(it.id),
+    className: "text-xs px-1.5",
+    style: {
+      color: C.inkSoft
+    },
+    title: "\u524A\u9664"
+  }, "\u2715"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => addFavorite(it),
+    className: "text-xs px-1.5",
+    style: {
+      color: C.vermil
+    },
+    title: "\u3088\u304F\u4F7F\u3046\u51E6\u65B9\u306B\u767B\u9332"
+  }, "\u2606\u767B\u9332"))))), rp.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-2 mt-5 pt-4",
+    style: {
+      borderTop: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: exportJson,
+    className: "px-4 py-2 rounded text-sm font-medium",
+    style: {
+      background: C.vermil,
+      color: "#fff"
+    }
+  }, "JSON\u3092\u30B3\u30D4\u30FC"), /*#__PURE__*/React.createElement("button", {
+    onClick: downloadJson,
+    className: "px-4 py-2 rounded text-sm",
+    style: {
+      border: `1px solid ${C.ink}`,
+      color: C.ink
+    }
+  }, "JSON\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCsv,
+    className: "px-4 py-2 rounded text-sm",
+    style: {
+      border: `1px solid ${C.ink}`,
+      color: C.ink
+    }
+  }, "CSV\u3092\u30B3\u30D4\u30FC"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRp([]),
+    className: "px-4 py-2 rounded text-sm ml-auto",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u5168\u30AF\u30EA\u30A2"))), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs mt-3 leading-relaxed",
+    style: {
+      color: C.inkSoft
+    }
+  }, "\u203B \u672C\u30C4\u30FC\u30EB\u306F\u51E6\u65B9\u30C7\u30FC\u30BF\u306E\u5165\u529B\u88DC\u52A9\u3067\u3059\u3002\u7528\u91CF\u30FB\u7528\u6CD5\u30FB\u76F8\u4E92\u4F5C\u7528\u306E\u59A5\u5F53\u6027\u306F \u533B\u5E2B\u306E\u5224\u65AD\u3067\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u85AC\u4FA1\u30FB\u53CE\u8F09\u60C5\u5831\u306F\u8AAD\u307F\u8FBC\u3093\u3060\u30DE\u30B9\u30BF\u30FC\u306E \u9069\u7528\u6642\u70B9\u306E\u3082\u306E\u3067\u3059\u3002")))), toast && /*#__PURE__*/React.createElement("div", {
+    className: "fixed bottom-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-sm shadow-lg",
+    style: {
+      background: toast.kind === "err" ? C.vermil : C.ink,
+      color: "#fff"
+    }
+  }, toast.msg));
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(/*#__PURE__*/React.createElement(PrescriptionComposer, null));
+</script>
+</body>
+</html>
