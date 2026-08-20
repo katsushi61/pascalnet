@@ -1,0 +1,708 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>下肢静脈瘤のしくみ｜解説アニメーション</title>
+<!--
+App: varicose-vein-explainer
+Created: 2026-08-19
+Description: 下肢静脈瘤のしくみを1本の静脈を追いながら見せる、章立て・音声ナレーション付きの解説アニメーション
+-->
+<style>
+/* ===== CONFIG は </body> 直前の script 冒頭 ===== */
+
+:root{
+--paper:#EDF1F5;
+--card:#FFFFFF;
+--stage:#0A1B2A;
+--stage-2:#0E263B;
+--ink:#14212B;
+--ink-2:#5B6D7C;
+--hair:#D3DDE6;
+--vein:#1B4F8C;
+--vein-light:#4E8CCB;
+--flow:#C6303B;
+--warn:#B8621B;
+--serif:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif JP","Times New Roman",serif;
+--sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
+--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+background:var(--paper);
+color:var(--ink);
+font-family:var(--sans);
+-webkit-font-smoothing:antialiased;
+line-height:1.7;
+padding:24px 16px 56px;
+}
+.wrap{max-width:860px;margin:0 auto}
+
+/* ---- header ---- */
+header{margin-bottom:18px}
+.eyebrow{
+font-size:11px;letter-spacing:.22em;color:var(--ink-2);
+text-transform:uppercase;margin:0 0 6px;
+}
+h1{
+font-family:var(--serif);
+font-size:clamp(26px,6.4vw,40px);
+font-weight:600;letter-spacing:.02em;line-height:1.25;margin:0;
+}
+h1 .thin{color:var(--vein)}
+.lede{margin:8px 0 0;color:var(--ink-2);font-size:14px;max-width:46em}
+
+/* ---- stage ---- */
+.stage{
+position:relative;margin-top:20px;
+background:var(--stage);
+border-radius:14px;overflow:hidden;
+box-shadow:0 18px 40px -24px rgba(10,27,42,.7);
+}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.stage-tag{
+position:absolute;top:12px;left:14px;
+font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+color:rgba(255,255,255,.42);
+}
+.clock{
+position:absolute;top:12px;right:14px;
+font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+color:rgba(255,255,255,.42);
+}
+.bigplay{
+position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+background:rgba(10,27,42,.55);border:0;cursor:pointer;
+color:#fff;font-family:var(--sans);font-size:14px;gap:12px;
+transition:opacity .25s;
+}
+.bigplay .disc{
+width:62px;height:62px;border-radius:50%;
+border:1px solid rgba(255,255,255,.55);
+display:grid;place-items:center;
+}
+.bigplay .tri{
+width:0;height:0;margin-left:4px;
+border-left:16px solid #fff;border-top:10px solid transparent;border-bottom:10px solid transparent;
+}
+.bigplay[hidden]{display:none}
+
+/* ---- caption ---- */
+.caption{
+background:var(--card);border:1px solid var(--hair);border-top:0;
+border-radius:0 0 14px 14px;padding:16px 18px 18px;margin-top:-14px;
+position:relative;z-index:1;
+}
+.cap-no{
+font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--vein);
+}
+.cap-title{
+font-family:var(--serif);font-size:clamp(19px,4.6vw,24px);font-weight:600;
+margin:2px 0 6px;letter-spacing:.01em;
+}
+.cap-body{margin:0;font-size:15px;color:#2C3A45;min-height:3.4em}
+.cap-fade{animation:capin .5s ease both}
+@keyframes capin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---- transport ---- */
+.transport{display:flex;align-items:center;gap:12px;margin-top:14px}
+button.ctl{
+font-family:var(--sans);font-size:13px;
+background:var(--card);color:var(--ink);
+border:1px solid var(--hair);border-radius:999px;
+padding:9px 16px;cursor:pointer;white-space:nowrap;
+}
+button.ctl:hover{border-color:var(--vein);color:var(--vein)}
+button.ctl:focus-visible,.chapter:focus-visible,.bigplay:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
+button.ctl[aria-pressed="true"]{background:var(--vein);border-color:var(--vein);color:#fff}
+.bar{
+flex:1;height:26px;position:relative;cursor:pointer;
+}
+.bar .track{
+position:absolute;top:11px;left:0;right:0;height:4px;border-radius:2px;
+background:#D8E2EB;
+}
+.bar .fill{
+position:absolute;top:11px;left:0;height:4px;border-radius:2px;
+background:linear-gradient(90deg,var(--vein),var(--vein-light));width:0
+}
+.cusp{
+position:absolute;top:6px;width:2px;height:14px;background:#B7C7D4;transform:translateX(-1px)
+}
+
+/* ---- chapters ---- */
+.chapters{
+list-style:none;margin:18px 0 0;padding:0;
+display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;
+}
+.chapter{
+text-align:left;width:100%;
+background:transparent;border:1px solid var(--hair);border-radius:10px;
+padding:10px 12px;cursor:pointer;font-family:var(--sans);color:var(--ink-2);
+}
+.chapter b{display:block;font-weight:600;color:var(--ink);font-size:13.5px;margin-top:2px}
+.chapter i{font-style:normal;font-family:var(--mono);font-size:10px;letter-spacing:.12em}
+.chapter[aria-current="true"]{border-color:var(--vein);background:#fff}
+.chapter[aria-current="true"] i{color:var(--flow)}
+
+/* ---- takeaway / footer ---- */
+.notes{
+margin-top:26px;background:var(--card);border:1px solid var(--hair);
+border-radius:12px;padding:18px 20px;
+}
+.notes h2{
+font-family:var(--serif);font-size:17px;margin:0 0 10px;font-weight:600;
+}
+.notes ul{margin:0;padding-left:1.1em;font-size:14.5px;color:#2C3A45}
+.notes li{margin-bottom:6px}
+.notes li:last-child{margin-bottom:0}
+.disclaimer{
+margin-top:16px;font-size:12px;color:var(--ink-2);line-height:1.6;
+border-left:2px solid var(--hair);padding-left:12px;
+}
+
+@media (max-width:600px){
+body{padding:18px 12px 44px}
+.transport{flex-wrap:wrap}
+.bar{order:3;flex-basis:100%}
+.caption{padding:14px 14px 16px}
+}
+@media (prefers-reduced-motion:reduce){
+.cap-fade{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<p class="eyebrow">1本の静脈でたどる</p>
+<h1>下肢静脈瘤は<br><span class="thin">弁のこわれ</span>から始まる</h1>
+<p class="lede">ふくらはぎの静脈を1本だけ拡大して、正常な流れが逆流に変わり、こぶになるまでを約1分で追いかけます。</p>
+</header>
+
+<div class="stage">
+<canvas id="cv" aria-label="下肢静脈瘤のしくみのアニメーション"></canvas>
+<span class="stage-tag">CALF VEIN / 拡大</span>
+<span class="clock" id="clock">0:00</span>
+<button class="bigplay" id="bigplay" aria-label="再生">
+<span class="disc"><span class="tri"></span></span>
+<span>再生する</span>
+</button>
+</div>
+
+<div class="caption">
+<div id="capwrap">
+<div class="cap-no" id="capNo">01 / 06</div>
+<div class="cap-title" id="capTitle">重力に逆らって、心臓へ</div>
+<p class="cap-body" id="capBody">立っているとき、足の血液は下から上へ、重力に逆らって心臓へ戻ります。押し上げる力の主役は、ふくらはぎの筋肉です。</p>
+</div>
+</div>
+
+<div class="transport">
+<button class="ctl" id="play">▶ 再生</button>
+<button class="ctl" id="sound" aria-pressed="false">🔈 ナレーション</button>
+<div class="bar" id="bar" role="slider" aria-label="再生位置" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+<div class="track"></div><div class="fill" id="fill"></div>
+</div>
+<button class="ctl" id="replay">↺ 最初から</button>
+</div>
+
+<ul class="chapters" id="chapters"></ul>
+
+<div class="notes">
+<h2>受診を考える目安</h2>
+<ul>
+<li>足の血管がぼこぼこ浮き出て、日ごとに目立ってきた</li>
+<li>夕方になると重だるい、だるさやこむら返りが続く</li>
+<li>くるぶし周りの皮膚が茶色く硬くなってきた</li>
+<li>傷が治りにくい、じくじくした部分がある</li>
+</ul>
+<p class="disclaimer">このアニメーションは一般的なしくみの説明です。症状の原因は静脈瘤とは限らず、急に片脚だけ腫れて痛む場合など、別の病気が隠れていることもあります。気になる症状があるときは自己判断せず、血管外科・循環器の診療科を受診してください。</p>
+</div>
+
+</div>
+
+<script>
+/* ===== CONFIG ===== */
+const CONFIG = {
+apiBase: "",
+basePath: "/apps/varicose-vein-explainer/"
+};
+
+/* ===== 台本 ===== */
+const SCENES = [
+{
+t: 9,
+title: "重力に逆らって、心臓へ",
+body: "立っているとき、足の血液は下から上へ、重力に逆らって心臓へ戻ります。押し上げる力の主役は、ふくらはぎの筋肉です。",
+say: "立っているとき、足の血液は、下から上へ、重力に逆らって心臓へ戻ります。押し上げる力の主役は、ふくらはぎの筋肉です。",
+p: {}
+},
+{
+t: 10,
+title: "逆流を止める「弁」",
+body: "静脈の中には、ポケットのような弁が並んでいます。血液が上がるときは開き、下がろうとすると閉じて、落ちるのを止めています。",
+say: "静脈の中には、ポケットのような弁が並んでいます。血液が上がるときは開き、下がろうとすると閉じて、落ちるのを止めています。",
+p: { zoom: 1, valveCycle: 1 }
+},
+{
+t: 10,
+title: "弁がこわれると、逆流する",
+body: "弁が変形して閉じきらなくなると、上がった血液がすき間から下へ落ちます。これが異常血流、つまり逆流です。",
+say: "弁が変形して、閉じきらなくなると、上がった血液が、すき間から下へ落ちます。これが異常血流、つまり逆流です。",
+p: { zoom: 1, broken: 1, reflux: 1 }
+},
+{
+t: 10,
+title: "たまった血が、静脈をふくらませる",
+body: "落ちた血液は下にたまり、内側から壁を押し広げます。静脈は太く曲がりくねり、皮膚の上からもこぶとして見えるようになります。",
+say: "落ちた血液は下にたまり、内側から壁を押し広げます。静脈は太く曲がりくねり、皮膚の上からも、こぶとして見えるようになります。",
+p: { zoom: .25, broken: 1, reflux: 1, dilate: 1, surface: 1 }
+},
+{
+t: 10,
+title: "進行すると、皮膚に出る",
+body: "うっ滞が続くと、夕方の足首のむくみ、色素沈着、皮膚の硬化が現れます。さらに進むと、治りにくい潰瘍ができることがあります。",
+say: "うっ滞が続くと、夕方の足首のむくみ、色素沈着、皮膚の硬化が現れます。さらに進むと、治りにくい潰瘍ができることがあります。",
+p: { zoom: 0, broken: 1, reflux: 1, dilate: 1, surface: 1, edema: 1, pigment: 1, ulcer: 1 }
+},
+{
+t: 11,
+title: "こわれた弁は、外から助ける",
+body: "弁そのものは元に戻りません。だから弾性ストッキングで外から支え、歩いてふくらはぎを動かし、休むときは脚を上げて、たまる時間を減らします。",
+say: "こわれた弁は、元には戻りません。だから、弾性ストッキングで外から支え、歩いてふくらはぎを動かし、休むときは脚を上げて、血がたまる時間を減らします。治療が必要かどうかは、医療機関で相談してください。",
+p: { zoom: 0, broken: 1, dilate: .45, surface: .55, reflux: .25, edema: .25, pigment: .7, ulcer: .5, stocking: 1 }
+}
+];
+
+const DEFAULTS = { zoom:0, valveCycle:0, broken:0, reflux:0, dilate:0, surface:0, edema:0, pigment:0, ulcer:0, stocking:0 };
+const TOTAL = SCENES.reduce((a,s)=>a+s.t,0);
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ===== 状態 ===== */
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let W=0,H=0,DPR=1;
+let playing=false, elapsed=0, lastFrame=0, sceneIdx=-1, sceneT=0;
+let soundOn=false;
+const P = Object.assign({}, DEFAULTS); // 現在値
+let TARGET = Object.assign({}, DEFAULTS); // 目標値
+
+function resize(){
+const rect = cv.parentElement.getBoundingClientRect();
+const cssW = Math.max(280, rect.width);
+const ratio = cssW < 520 ? 1.08 : 0.66; // 縦長 / 横長
+const cssH = Math.round(cssW * ratio);
+DPR = Math.min(window.devicePixelRatio || 1, 2);
+cv.style.height = cssH + "px";
+cv.width = Math.round(cssW * DPR);
+cv.height = Math.round(cssH * DPR);
+W = cssW; H = cssH;
+ctx.setTransform(DPR,0,0,DPR,0,0);
+draw(0);
+}
+window.addEventListener("resize", resize);
+
+/* ===== 血流の粒（シェブロン） ===== */
+const up = [], down = [];
+for(let i=0;i<26;i++) up.push({ y: Math.random(), lane:(Math.random()*2-1)*.55, v: .06+Math.random()*.05 });
+for(let i=0;i<16;i++) down.push({ y: Math.random()*.5, lane:(Math.random()*2-1)*.5, v: .05+Math.random()*.04 });
+
+/* ===== 描画 ===== */
+const VALVE_Y = 0.42; // 血管上の相対位置
+function lerp(a,b,t){ return a+(b-a)*t; }
+function ease(t){ return t<0 ? 0 : t>1 ? 1 : t*t*(3-2*t); }
+
+function draw(dt){
+// パラメータを目標へなめらかに追従
+const k = 1 - Math.pow(0.0025, dt);
+for(const key in P) P[key] = lerp(P[key], TARGET[key], reduced ? 1 : k);
+
+ctx.clearRect(0,0,W,H);
+// 背景
+const bg = ctx.createLinearGradient(0,0,0,H);
+bg.addColorStop(0,"#0C2136"); bg.addColorStop(1,"#081726");
+ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+ctx.strokeStyle = "rgba(255,255,255,.035)"; ctx.lineWidth = 1;
+for(let x=0;x<W;x+=34){ ctx.beginPath(); ctx.moveTo(x+.5,0); ctx.lineTo(x+.5,H); ctx.stroke(); }
+
+const narrow = W < 520;
+const legW = narrow ? W*0.30 : W*0.30;
+const legCx = legW*0.52;
+const vesselCx = narrow ? legW + (W-legW)*0.42 : legW + (W-legW)*0.46;
+
+drawLeg(legCx, H, legW);
+drawZoomCone(legCx, legW, vesselCx, H);
+drawVessel(vesselCx, H, narrow);
+}
+
+/* --- 脚 --- */
+function drawLeg(cx, h, legW){
+const top = h*0.10, bot = h*0.90;
+const kneeW = legW*0.30, calfW = legW*0.38*(1+P.edema*0.02), ankW = legW*0.16*(1+P.edema*0.55);
+const calfY = top + (bot-top)*0.34;
+
+ctx.save();
+ctx.beginPath();
+ctx.moveTo(cx-kneeW, top);
+ctx.bezierCurveTo(cx-calfW, calfY, cx-ankW*1.5, bot-(bot-top)*0.18, cx-ankW, bot);
+ctx.lineTo(cx+ankW, bot);
+ctx.bezierCurveTo(cx+ankW*1.4, bot-(bot-top)*0.18, cx+calfW*0.82, calfY, cx+kneeW, top);
+ctx.closePath();
+const g = ctx.createLinearGradient(cx-kneeW,0,cx+kneeW,0);
+g.addColorStop(0,"#F6DACD"); g.addColorStop(.55,"#EFC5B5"); g.addColorStop(1,"#DDA795");
+ctx.fillStyle = g; ctx.fill();
+ctx.clip();
+
+// 色素沈着（足首まわり）
+if(P.pigment>.02){
+const rg = ctx.createRadialGradient(cx, bot-(bot-top)*0.06, 2, cx, bot-(bot-top)*0.06, legW*0.55);
+rg.addColorStop(0,`rgba(120,72,48,${0.55*P.pigment})`);
+rg.addColorStop(1,"rgba(120,72,48,0)");
+ctx.fillStyle = rg; ctx.fillRect(cx-legW, bot-(bot-top)*0.5, legW*2, (bot-top)*0.5);
+}
+// 皮膚に浮く蛇行静脈
+if(P.surface>.02){
+ctx.globalAlpha = P.surface;
+ctx.lineCap = "round";
+for(let i=0;i<2;i++){
+const x0 = cx + (i? legW*0.12 : -legW*0.13);
+ctx.beginPath();
+ctx.moveTo(x0, calfY - (bot-top)*0.06);
+for(let s=0;s<=26;s++){
+const p = s/26, y = calfY - (bot-top)*0.06 + p*(bot-top)*0.62;
+const x = x0 + Math.sin(p*10 + i*2)*legW*0.085*(0.4+p);
+ctx.lineTo(x,y);
+}
+ctx.strokeStyle = i? "rgba(84,62,138,.85)" : "rgba(60,84,158,.9)";
+ctx.lineWidth = (1.6 + 2.6*P.dilate) * (i?0.8:1);
+ctx.stroke();
+}
+ctx.globalAlpha = 1;
+}
+// 潰瘍
+if(P.ulcer>.05){
+const ux = cx - legW*0.07, uy = bot - (bot-top)*0.10;
+ctx.globalAlpha = P.ulcer;
+ctx.beginPath(); ctx.arc(ux,uy, legW*0.055, 0, Math.PI*2);
+ctx.fillStyle = "#A8322B"; ctx.fill();
+ctx.beginPath(); ctx.arc(ux,uy, legW*0.085, 0, Math.PI*2);
+ctx.strokeStyle = "rgba(168,50,43,.35)"; ctx.lineWidth = 3; ctx.stroke();
+ctx.globalAlpha = 1;
+}
+// 弾性ストッキング
+if(P.stocking>.05){
+ctx.globalAlpha = P.stocking*0.85;
+const sg = ctx.createLinearGradient(cx-legW,0,cx+legW,0);
+sg.addColorStop(0,"rgba(30,52,72,.92)"); sg.addColorStop(.5,"rgba(58,86,112,.72)"); sg.addColorStop(1,"rgba(24,42,60,.95)");
+ctx.fillStyle = sg;
+ctx.fillRect(cx-legW, top+(bot-top)*0.12, legW*2, (bot-top)*0.92);
+ctx.strokeStyle = "rgba(255,255,255,.10)"; ctx.lineWidth=1;
+for(let y=top+(bot-top)*0.14; y<bot; y+=7){ ctx.beginPath(); ctx.moveTo(cx-legW,y); ctx.lineTo(cx+legW,y); ctx.stroke(); }
+ctx.globalAlpha = 1;
+}
+ctx.restore();
+
+// 拡大枠
+const bx = cx - legW*0.16, by = top+(bot-top)*0.30, bw = legW*0.30, bh = (bot-top)*0.16;
+ctx.strokeStyle = "rgba(198,48,59,.95)"; ctx.lineWidth = 2;
+ctx.strokeRect(bx,by,bw,bh);
+legBox = {x:bx,y:by,w:bw,h:bh};
+
+// ふくらはぎポンプの脈動（章1）
+if(P.zoom < .3 && P.dilate < .3){
+const pulse = (Math.sin(performance.now()/520)+1)/2;
+ctx.strokeStyle = `rgba(198,48,59,${0.10+0.22*pulse})`;
+ctx.lineWidth = 2 + 3*pulse;
+ctx.beginPath(); ctx.ellipse(cx, calfY+(bot-top)*0.05, legW*0.42, (bot-top)*0.16, 0, 0, Math.PI*2); ctx.stroke();
+}
+}
+let legBox = {x:0,y:0,w:0,h:0};
+
+function drawZoomCone(legCx, legW, vCx, h){
+const vx = vCx - vesselHalf() - 6;
+ctx.beginPath();
+ctx.moveTo(legBox.x+legBox.w, legBox.y);
+ctx.lineTo(vx, h*0.10);
+ctx.lineTo(vx, h*0.90);
+ctx.lineTo(legBox.x+legBox.w, legBox.y+legBox.h);
+ctx.closePath();
+ctx.fillStyle = "rgba(198,48,59,.055)"; ctx.fill();
+ctx.strokeStyle = "rgba(198,48,59,.28)"; ctx.lineWidth = 1; ctx.stroke();
+}
+
+function vesselHalf(){
+return baseR() * (1 + P.dilate*1.15) * (1 + P.zoom*0.55);
+}
+function baseR(){ return Math.min(W*0.055, H*0.085); }
+
+/* --- 血管本体 --- */
+function radiusAt(p){ // p: 0(下) → 1(上)
+const r = baseR() * (1 + P.zoom*0.55);
+const pool = P.dilate * (0.85 - 0.55*p); // 下ほど太い
+const wave = P.dilate * 0.35 * Math.sin(p*9.5 + 1.2);
+return r * (1 + pool + wave);
+}
+function centerAt(cx, p){
+return cx + Math.sin(p*7.2 + 0.6) * baseR() * 0.85 * P.dilate;
+}
+
+function drawVessel(cx, h, narrow){
+const top = h*0.08, bot = h*0.92, span = bot-top;
+const yOf = p => bot - p*span; // p=0 が下端
+const N = 60;
+
+// 内腔の輪郭
+ctx.beginPath();
+for(let i=0;i<=N;i++){ const p=i/N; ctx.lineTo(centerAt(cx,p)-radiusAt(p), yOf(p)); }
+for(let i=N;i>=0;i--){ const p=i/N; ctx.lineTo(centerAt(cx,p)+radiusAt(p), yOf(p)); }
+ctx.closePath();
+const lg = ctx.createLinearGradient(cx-baseR()*2,0,cx+baseR()*2,0);
+lg.addColorStop(0,"#123C6E"); lg.addColorStop(.45,"#2C6FB8"); lg.addColorStop(1,"#0E2C52");
+ctx.fillStyle = lg; ctx.fill();
+ctx.lineJoin="round";
+ctx.strokeStyle = "#BFD8EC"; ctx.lineWidth = 3 + P.zoom*1.5; ctx.stroke();
+
+ctx.save();
+ctx.clip(); // ここから内腔の中だけ
+
+const vy = yOf(VALVE_Y);
+const cyc = P.valveCycle > 0.5;
+const openCycle = cyc ? (Math.sin(performance.now()/1100)+1)/2 : 1;
+const gap = P.broken; // 0=閉じられる 1=閉じない
+
+// 上向きの流れ
+ctx.lineCap="round";
+for(const q of up){
+const p = q.y;
+const x = centerAt(cx,p) + q.lane*radiusAt(p)*0.62;
+const y = yOf(p);
+const blocked = cyc && openCycle<0.4 && p<VALVE_Y-0.02;
+const a = blocked ? 0.35 : 1;
+chevron(x,y, radiusAt(p)*0.42, 1, `rgba(226,74,80,${a*0.95})`, 2.4+P.zoom);
+}
+// 逆流
+for(const q of down){
+if(P.reflux<0.04) break;
+const p = q.y;
+const x = centerAt(cx,p) + q.lane*radiusAt(p)*0.5;
+chevron(x, yOf(p), radiusAt(p)*0.40, -1, `rgba(150,60,190,${0.5+0.45*P.reflux})`, 2.4+P.zoom);
+}
+// うっ滞（下部にたまる血）
+if(P.dilate>.05){
+const pg = ctx.createLinearGradient(0,yOf(0.30),0,yOf(0));
+pg.addColorStop(0,"rgba(20,26,80,0)"); pg.addColorStop(1,`rgba(38,20,86,${0.55*P.dilate})`);
+ctx.fillStyle = pg; ctx.fillRect(cx-W, yOf(0.30), W*2, span*0.30+4);
+}
+
+// 弁（2枚のカスプ）
+drawValve(cx, vy, radiusAt(VALVE_Y), openCycle, gap);
+ctx.restore();
+
+// ラベル
+const labelX = cx + radiusAt(VALVE_Y) + 14;
+if(P.zoom>.4 && P.broken<.5) label("弁", labelX, vy+2, cx+radiusAt(VALVE_Y)*0.2, vy+6);
+if(P.broken>.5 && P.zoom>.15) label("弁の変形", labelX, vy-16, cx+radiusAt(VALVE_Y)*0.1, vy);
+if(P.reflux>.5) label("逆流", labelX, yOf(VALVE_Y-0.16), cx+radiusAt(VALVE_Y-0.16)*0.35, yOf(VALVE_Y-0.16));
+if(P.dilate>.5) label("静脈の拡張", labelX+ (radiusAt(0.14)-radiusAt(VALVE_Y)), yOf(0.14), cx+radiusAt(0.14)*0.6, yOf(0.14));
+if(P.dilate<.3 && P.reflux<.3) label("正常な血流", labelX, yOf(0.80), cx+radiusAt(0.80)*0.4, yOf(0.80));
+}
+
+function chevron(x,y,w,dir,color,lw){
+ctx.beginPath();
+ctx.moveTo(x-w, y+dir*w*0.55);
+ctx.lineTo(x, y-dir*w*0.55);
+ctx.lineTo(x+w, y+dir*w*0.55);
+ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke();
+}
+
+function drawValve(cx, vy, r, openCycle, gap){
+// 閉じ具合: 0=全開 1=完全に閉鎖
+const closed = (1-openCycle) * (1-gap);
+const inner = r * (0.15 + 0.72*(1-closed)) + gap*r*0.30;
+const len = r * (0.85 - 0.25*gap);
+const thick = 1 + gap*1.2;
+
+for(const s of [-1,1]){
+ctx.beginPath();
+ctx.moveTo(cx + s*r, vy + len*0.55);
+ctx.quadraticCurveTo(cx + s*r*0.92, vy - len*0.15, cx + s*inner, vy - len*0.45);
+ctx.quadraticCurveTo(cx + s*(inner + r*0.30), vy - len*0.05, cx + s*r, vy + len*0.55);
+ctx.closePath();
+ctx.fillStyle = gap>0.5 ? "#C9D3DC" : "#E6F0F8";
+ctx.fill();
+ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = thick; ctx.stroke();
+}
+if(gap>0.5){ // すき間を示す
+ctx.beginPath();
+ctx.arc(cx, vy - len*0.42, r*0.30*gap, 0, Math.PI*2);
+ctx.strokeStyle = "rgba(255,214,90,.7)"; ctx.lineWidth = 1.5; ctx.setLineDash([3,3]);
+ctx.stroke(); ctx.setLineDash([]);
+}
+}
+
+function label(text, x, y, lx, ly){
+ctx.save();
+ctx.font = `500 ${W<520?11:12.5}px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif`;
+ctx.textBaseline = "middle";
+const w = ctx.measureText(text).width;
+ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 1;
+ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(x-6, y); ctx.stroke();
+ctx.fillStyle = "rgba(10,27,42,.85)";
+ctx.fillRect(x-4, y-9, w+8, 18);
+ctx.fillStyle = "#EAF2F9"; ctx.fillText(text, x, y+.5);
+ctx.restore();
+}
+
+/* ===== 進行 ===== */
+function sceneAt(time){
+let acc = 0;
+for(let i=0;i<SCENES.length;i++){
+if(time < acc + SCENES[i].t) return {i, local: time-acc};
+acc += SCENES[i].t;
+}
+return {i: SCENES.length-1, local: SCENES[SCENES.length-1].t};
+}
+function startAt(time){
+elapsed = Math.max(0, Math.min(TOTAL-0.01, time));
+const {i} = sceneAt(elapsed);
+applyScene(i, true);
+}
+function applyScene(i, jump){
+if(i === sceneIdx) return;
+sceneIdx = i;
+TARGET = Object.assign({}, DEFAULTS, SCENES[i].p);
+if(jump) for(const k in P) P[k] = TARGET[k];
+const cap = document.getElementById("capwrap");
+document.getElementById("capNo").textContent = String(i+1).padStart(2,"0") + " / " + String(SCENES.length).padStart(2,"0");
+document.getElementById("capTitle").textContent = SCENES[i].title;
+document.getElementById("capBody").textContent = SCENES[i].body;
+cap.classList.remove("cap-fade"); void cap.offsetWidth; cap.classList.add("cap-fade");
+[...document.querySelectorAll(".chapter")].forEach((b,n)=> b.setAttribute("aria-current", n===i));
+speak(SCENES[i].say);
+}
+
+function tick(now){
+const dt = Math.min(0.05, (now - lastFrame)/1000 || 0);
+lastFrame = now;
+if(playing){
+elapsed += dt;
+if(elapsed >= TOTAL){ elapsed = TOTAL; pause(true); }
+applyScene(sceneAt(elapsed).i);
+// 粒を動かす
+const flow = 1 - 0.55*P.dilate;
+for(const q of up){
+q.y += q.v*dt*flow*(reduced?0.3:1)*(1-0.5*P.reflux);
+if(q.y>1.02){ q.y = -0.02; q.lane = (Math.random()*2-1)*.55; }
+}
+for(const q of down){
+q.y -= q.v*dt*(reduced?0.3:1);
+if(q.y < -0.02){ q.y = VALVE_Y-0.03; q.lane = (Math.random()*2-1)*.5; }
+}
+}
+draw(dt);
+updateBar();
+requestAnimationFrame(tick);
+}
+
+function updateBar(){
+const pct = elapsed/TOTAL*100;
+document.getElementById("fill").style.width = pct + "%";
+document.getElementById("bar").setAttribute("aria-valuenow", Math.round(pct));
+const s = Math.floor(elapsed);
+document.getElementById("clock").textContent = Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+}
+
+/* ===== ナレーション ===== */
+let jaVoice = null;
+function pickVoice(){
+const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+jaVoice = vs.find(v=>/ja[-_]JP/i.test(v.lang)) || vs.find(v=>/^ja/i.test(v.lang)) || null;
+}
+if(window.speechSynthesis){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(text){
+if(!soundOn || !window.speechSynthesis) return;
+speechSynthesis.cancel();
+const u = new SpeechSynthesisUtterance(text);
+u.lang = "ja-JP"; u.rate = 0.98; u.pitch = 1.0;
+if(jaVoice) u.voice = jaVoice;
+speechSynthesis.speak(u);
+}
+function hush(){ if(window.speechSynthesis) speechSynthesis.cancel(); }
+
+/* ===== 操作 ===== */
+const playBtn = document.getElementById("play");
+const bigPlay = document.getElementById("bigplay");
+
+function play(){
+playing = true;
+playBtn.textContent = "❚❚ 一時停止";
+bigPlay.hidden = true;
+if(elapsed >= TOTAL - 0.05) { elapsed = 0; sceneIdx = -1; }
+applyScene(sceneAt(elapsed).i);
+}
+function pause(ended){
+playing = false;
+playBtn.textContent = ended ? "↺ もう一度" : "▶ 再生";
+hush();
+}
+playBtn.addEventListener("click", ()=> playing ? pause() : play());
+bigPlay.addEventListener("click", play);
+document.getElementById("replay").addEventListener("click", ()=>{ elapsed=0; sceneIdx=-1; startAt(0); play(); });
+
+const soundBtn = document.getElementById("sound");
+soundBtn.addEventListener("click", ()=>{
+soundOn = !soundOn;
+soundBtn.setAttribute("aria-pressed", soundOn);
+soundBtn.textContent = soundOn ? "🔊 ナレーション" : "🔈 ナレーション";
+if(soundOn && playing) speak(SCENES[sceneIdx].say); else hush();
+});
+
+const bar = document.getElementById("bar");
+function seekFromEvent(e){
+const r = bar.getBoundingClientRect();
+const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+hush(); sceneIdx = -1;
+startAt(Math.max(0, Math.min(1, x/r.width)) * TOTAL);
+}
+bar.addEventListener("click", seekFromEvent);
+bar.addEventListener("keydown", e=>{
+if(e.key==="ArrowRight"||e.key==="ArrowLeft"){
+e.preventDefault(); hush(); sceneIdx=-1;
+startAt(elapsed + (e.key==="ArrowRight"?5:-5));
+}
+});
+
+/* 章リスト + 弁マーカー */
+const chapters = document.getElementById("chapters");
+let acc = 0;
+SCENES.forEach((s,i)=>{
+const li = document.createElement("li");
+const b = document.createElement("button");
+b.className = "chapter"; b.setAttribute("aria-current", i===0);
+b.innerHTML = `<i>CH ${String(i+1).padStart(2,"0")}</i><b>${s.title}</b>`;
+b.addEventListener("click", ()=>{
+let start = 0; for(let n=0;n<i;n++) start += SCENES[n].t;
+hush(); sceneIdx = -1; startAt(start); play();
+});
+li.appendChild(b); chapters.appendChild(li);
+if(i>0){
+const c = document.createElement("div");
+c.className = "cusp"; c.style.left = (acc/TOTAL*100) + "%";
+bar.appendChild(c);
+}
+acc += s.t;
+});
+
+/* 起動 */
+resize();
+startAt(0);
+requestAnimationFrame(t=>{ lastFrame = t; requestAnimationFrame(tick); });
+</script>
+</body>
+</html>
