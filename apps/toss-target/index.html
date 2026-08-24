@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>トス・ターゲット | サーブのトスアップ練習</title>
+<!--
+App: toss-trainer
+Created: 2026-08-20
+Description: カメラ映像の実空間に的リングを固定表示し、サーブのトス頂点を色追跡で自動採点する練習アプリ(画面固定/空間固定の2モード)
+-->
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; }
+  body { min-height: 100vh; background: #101D28; color: #F2F6F1;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .num { font-family: "Avenir Next Condensed", "Arial Narrow", -apple-system, sans-serif;
+    font-weight: 700; letter-spacing: .02em; }
+
+  /* ---- イントロ ---- */
+  .intro { max-width: 560px; margin: 0 auto; padding: 28px 20px 48px; }
+  .intro h1 { font-size: 24px; letter-spacing: .04em; }
+  .intro h1 span { color: #C8E634; }
+  .intro .lead { color: #9FB4BE; font-size: 13.5px; line-height: 1.9; margin: 10px 0 22px; }
+  .step { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid #22333F; }
+  .step .ico { font-size: 24px; line-height: 1.2; }
+  .step b { display: block; font-size: 14px; margin-bottom: 3px; }
+  .step p { font-size: 12.5px; color: #9FB4BE; line-height: 1.8; }
+  .startbtn { width: 100%; margin-top: 22px; font-family: inherit; font-weight: 700;
+    font-size: 16px; padding: 15px; border: none; border-radius: 999px; cursor: pointer;
+    background: #C8E634; color: #16240B; letter-spacing: .06em; }
+  .startbtn:active { transform: scale(.98); }
+  .err { margin-top: 14px; font-size: 13px; color: #F5B0A0; line-height: 1.8;
+    background: #2A1E1B; border-radius: 10px; padding: 12px; display: none; }
+
+  /* ---- ライブ画面 ---- */
+  .live { position: fixed; inset: 0; display: none; flex-direction: column; }
+  .stage { position: relative; flex: 1; overflow: hidden; background: #000; touch-action: none; }
+  .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .ring { position: absolute; border-radius: 50%; transform: translate(-50%, -50%);
+    border: 3px dashed #C8E634; cursor: grab; touch-action: none;
+    box-shadow: 0 0 0 3px rgba(16,29,40,.35), inset 0 0 0 2px rgba(16,29,40,.35);
+    animation: spin 14s linear infinite; }
+  .ring::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px;
+    transform: translate(-50%, -50%); border-radius: 50%; background: #C8E634; }
+  @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+  .ring.anchored { border-style: solid; animation: none; }
+  #balldot { position: absolute; width: 16px; height: 16px; border-radius: 50%;
+    border: 2.5px solid #FF8A5C; transform: translate(-50%, -50%); pointer-events: none; display: none; }
+  #guide { position: absolute; width: 40px; height: 40px; display: none; pointer-events: none;
+    color: #C8E634; font-size: 30px; line-height: 40px; text-align: center;
+    text-shadow: 0 1px 8px rgba(0,0,0,.7); }
+  .splash { position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+    font-size: 74px; line-height: 1;
+    color: #C8E634; text-shadow: 0 2px 14px rgba(0,0,0,.6); animation: pop 1.4s ease-out forwards; }
+  .splash.mid { color: #F2F6F1; }
+  .splash.low { color: #9FB4BE; font-size: 56px; }
+  @keyframes pop { 0% { transform: translate(-50%,-50%) scale(.4); opacity: 0; }
+    15% { transform: translate(-50%,-50%) scale(1.15); opacity: 1; }
+    70% { opacity: 1; } 100% { transform: translate(-50%,-70%) scale(1); opacity: 0; } }
+  #calibmsg { position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+    background: rgba(16,29,40,.85); color: #C8E634; font-size: 13px; font-weight: 700;
+    padding: 10px 16px; border-radius: 999px; white-space: nowrap; display: none; max-width: 94%; overflow: hidden; text-overflow: ellipsis; }
+  #scorehud { position: absolute; right: 12px; top: 12px; text-align: right;
+    background: rgba(16,29,40,.7); border-radius: 12px; padding: 8px 14px; display: none; }
+  #scorehud .big { font-size: 42px; line-height: .9; color: #C8E634; }
+  #scorehud .sm { font-size: 10.5px; color: #9FB4BE; }
+
+  /* ---- 下部バー ---- */
+  .bar { background: #17242F; padding: 10px 14px calc(16px + env(safe-area-inset-bottom)); }
+  .barrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; max-width: 760px; margin: 0 auto; }
+  .bbtn { font-family: inherit; font-size: 12.5px; font-weight: 700; border: 1.5px solid #33475555;
+    background: #22333F; color: #F2F6F1; border-radius: 999px; padding: 10px 14px; cursor: pointer; }
+  .bbtn.hl { background: #C8E634; color: #16240B; border-color: #C8E634; }
+  .sizer { flex: 1; min-width: 130px; display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: #9FB4BE; }
+  input[type=range] { flex: 1; accent-color: #C8E634; }
+  #hist { display: flex; gap: 5px; overflow-x: auto; margin: 10px auto 0; max-width: 760px; }
+  .chip { min-width: 34px; text-align: center; font-size: 21px;
+    padding: 3px 0 0; border-radius: 8px; background: #22333F; color: #9FB4BE; }
+  .chip.p10 { background: #C8E634; color: #16240B; }
+  #stats { display: none; gap: 16px; justify-content: center; margin-top: 8px;
+    font-size: 11.5px; color: #9FB4BE; }
+  #stats b { font-size: 20px; color: #F2F6F1; margin-left: 4px; }
+  @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
+</style>
+</head>
+<body>
+
+<div class="intro" id="intro">
+  <h1>トス・<span>ターゲット</span></h1>
+  <p class="lead">
+    サーブのトスアップ練習。カメラに写る空間に的（リング）を置いて、実際にボールを投げます。
+    トスの頂点が的の中なら<b>10点</b>、外れると距離に応じて減点。安定したトスを数字で確認できます。
+  </p>
+  <div class="step"><div class="ico">📱</div><div>
+    <b>1. スマホを固定する</b>
+    <p>壁や椅子に立てかけて、自分の横からトスが写るようにします。2〜3m離れると全体が入ります。</p>
+  </div></div>
+  <div class="step"><div class="ico">🎾</div><div>
+    <b>2. ボールの色を登録</b>
+    <p>ボールを持って画面に写し、「ボールの色を登録」→ 画面のボールをタップ。背景と色が違うボールほど正確に追跡できます。</p>
+  </div></div>
+  <div class="step"><div class="ico">🎯</div><div>
+    <b>3. 的を置いてトス！</b>
+    <p>リングをドラッグしてトスの理想位置に置き、サイズを調整。あとは投げるだけで自動採点されます。</p>
+  </div></div>
+  <div class="step"><div class="ico">🧭</div><div>
+    <b>空間固定モード（かざして使う場合）</b>
+    <p>「🧭 空間固定」をONにすると、リングが<b>実際の空間の方向に貼り付き</b>ます。スマホを動かしてもリングは空中の同じ場所に居続けるので、手に持ってかざしながら練習するときに使います。置きたい空中に向けて画面をタップすると、そこにリングが固定されます。</p>
+  </div></div>
+  <button class="startbtn" id="startBtn">カメラを起動して始める</button>
+  <div class="err" id="errBox"></div>
+</div>
+
+<div class="live" id="live">
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="ring" id="ring"></div>
+    <div id="balldot"></div>
+    <div id="guide">➤</div>
+    <div id="calibmsg"></div>
+    <div id="scorehud"><div class="big num" id="lastScore"></div><div class="sm">前回のスコア</div></div>
+  </div>
+  <div class="bar">
+    <div class="barrow">
+      <button class="bbtn hl" id="calibBtn">🎾 ボールの色を登録</button>
+      <button class="bbtn" id="modeBtn">🧭 空間固定 OFF</button>
+      <div class="sizer">的の大きさ
+        <input type="range" id="sizeRange" min="0.05" max="0.25" step="0.005" value="0.12">
+      </div>
+      <button class="bbtn" id="soundBtn">🔉 音ON</button>
+      <button class="bbtn" id="resetBtn">記録リセット</button>
+      <button class="bbtn" id="quitBtn">終了</button>
+    </div>
+    <div id="hist"></div>
+    <div id="stats">
+      <span>投球数<b class="num" id="stN">0</b></span>
+      <span>平均<b class="num" id="stAvg">-</b></span>
+      <span>満点<b class="num" id="stP">0</b></span>
+    </div>
+  </div>
+  <canvas id="cv" style="display:none"></canvas>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  /* ===== CONFIG ===== */
+  var CONFIG = { apiBase: "", basePath: "/apps/toss-trainer/" };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("video"), stage = $("stage"), cv = $("cv"), ring = $("ring");
+  var balldot = $("balldot"), calibmsg = $("calibmsg"), guide = $("guide");
+
+  var target = { x: 0.5, y: 0.3, r: 0.12 };
+  var ballColor = null;
+  var calibrating = false;
+  var soundOn = true;
+  var throws = [];
+  var track = { traj: [], state: "idle", minPoint: null, cooldownUntil: 0, lastSeen: 0 };
+  var stream = null, rafId = 0, audioCtx = null;
+
+  /* ===== 空間固定（AR）モード ===== */
+  var arMode = false;          // ON: リングを実空間の方向に固定
+  var anchor = null;           // ワールド座標系での単位方向ベクトル
+  var orient = null;           // 最新の deviceorientation
+  var orientSeen = false;
+  var VFOV = 60 * Math.PI / 180;   // 表示範囲の縦画角(近似)
+  var D2R = Math.PI / 180;
+
+  window.addEventListener("deviceorientation", function (e) {
+    if (e.alpha === null || e.beta === null) return;
+    orient = { a: e.alpha, b: e.beta, g: e.gamma };
+    orientSeen = true;
+  });
+
+  // 端末座標系 → ワールド座標系 の回転行列 (Z-X'-Y'' 順、W3C仕様の標準形)
+  function rotMat(o) {
+    var x = o.b * D2R, y = o.g * D2R, z = o.a * D2R;
+    var cX = Math.cos(x), sX = Math.sin(x);
+    var cY = Math.cos(y), sY = Math.sin(y);
+    var cZ = Math.cos(z), sZ = Math.sin(z);
+    return [
+      cZ * cY - sZ * sX * sY, -cX * sZ, cY * sZ * sX + cZ * sY,
+      cY * sZ + cZ * sX * sY,  cZ * cX, sZ * sY - cZ * cY * sX,
+      -cX * sY,                sX,      cX * cY
+    ];
+  }
+  function mulMV(m, v) {   // 端末→ワールド
+    return [m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+  }
+  function mulMTV(m, v) {  // ワールド→端末 (直交行列なので転置=逆行列)
+    return [m[0]*v[0]+m[3]*v[1]+m[6]*v[2], m[1]*v[0]+m[4]*v[1]+m[7]*v[2], m[2]*v[0]+m[5]*v[1]+m[8]*v[2]];
+  }
+  function norm(v) {
+    var l = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) || 1;
+    return [v[0]/l, v[1]/l, v[2]/l];
+  }
+  function focalPx() { return (stage.clientHeight / 2) / Math.tan(VFOV / 2); }
+
+  // タップ位置(px)の視線方向を、いまの姿勢でワールド系に変換して固定する
+  function placeAnchor(px, py) {
+    if (!orient) return false;
+    var f = focalPx();
+    var dv = norm([(px - stage.clientWidth / 2) / f, -(py - stage.clientHeight / 2) / f, -1]);
+    anchor = mulMV(rotMat(orient), dv);
+    return true;
+  }
+  // 固定した方向を、いまの姿勢で画面座標に投影する
+  function projectAnchor() {
+    if (!anchor || !orient) return null;
+    var v = mulMTV(rotMat(orient), anchor);
+    if (v[2] > -0.08) return { behind: true };   // ほぼ真後ろ〜視野外
+    var f = focalPx();
+    return {
+      behind: false,
+      x: stage.clientWidth / 2 + v[0] / (-v[2]) * f,
+      y: stage.clientHeight / 2 - v[1] / (-v[2]) * f
+    };
+  }
+
+  function updateAR() {
+    if (!arMode) { guide.style.display = "none"; return; }
+    var p = projectAnchor();
+    if (!p) return;
+    var W = stage.clientWidth, H = stage.clientHeight;
+    if (p.behind || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) {
+      // 画面外 → 端に矢印を出して方向を案内
+      var gx, gy, ang;
+      if (p.behind) { gx = W / 2; gy = H - 60; ang = 90; }
+      else {
+        gx = Math.min(W - 30, Math.max(30, p.x));
+        gy = Math.min(H - 30, Math.max(30, p.y));
+        ang = Math.atan2(p.y - H / 2, p.x - W / 2) / D2R;
+      }
+      guide.style.display = "block";
+      guide.style.left = (gx - 20) + "px";
+      guide.style.top = (gy - 20) + "px";
+      guide.style.transform = "rotate(" + ang + "deg)";
+      ring.style.opacity = ".25";
+    } else {
+      guide.style.display = "none";
+      ring.style.opacity = "1";
+      // なめらかに追従(手ブレ・センサーノイズ吸収)
+      target.x += (p.x / W - target.x) * 0.35;
+      target.y += (p.y / H - target.y) * 0.35;
+      updateRing();
+    }
+  }
+
+  var modeBtn = $("modeBtn");
+  modeBtn.addEventListener("click", function () {
+    if (arMode) { setAR(false); return; }
+    // iOS 13+ はユーザー操作内での許可リクエストが必須
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission().then(function (state) {
+        if (state === "granted") setAR(true);
+        else flashMsg("モーションセンサーが許可されませんでした");
+      }).catch(function () { flashMsg("モーションセンサーを利用できません"); });
+    } else {
+      setAR(true);
+      setTimeout(function () {
+        if (!orientSeen) { setAR(false); flashMsg("この端末では姿勢センサーを取得できません"); }
+      }, 1200);
+    }
+  });
+  function setAR(on) {
+    arMode = on;
+    anchor = null;
+    ring.classList.toggle("anchored", false);
+    ring.style.opacity = "1";
+    guide.style.display = "none";
+    modeBtn.textContent = on ? "🧭 空間固定 ON" : "🧭 空間固定 OFF";
+    modeBtn.className = "bbtn" + (on ? " hl" : "");
+    updateCalibUI();
+  }
+  var msgTimer = 0;
+  function flashMsg(text) {
+    calibmsg.textContent = text; calibmsg.style.display = "block";
+    clearTimeout(msgTimer);
+    msgTimer = setTimeout(updateCalibUI, 2500);
+  }
+
+  /* ---------- やわらかい効果音（低音のみ） ---------- */
+  function beep(score) {
+    if (!soundOn) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
+    function pon(t, f, v) {
+      var o = audioCtx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.12);
+      var g = audioCtx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(v, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.2);
+    }
+    var now = audioCtx.currentTime + 0.02;
+    if (score >= 10) { pon(now, 330, 0.12); pon(now + 0.14, 440, 0.12); }
+    else if (score >= 6) pon(now, 330, 0.1);
+    else pon(now, 200, 0.08);
+  }
+
+  /* ---------- カメラ ---------- */
+  $("startBtn").addEventListener("click", function () {
+    $("errBox").style.display = "none";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showErr("この環境ではカメラAPIが使えません。httpsのURLでSafariまたはChromeから開いてください。");
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false
+    }).then(function (s) {
+      stream = s;
+      video.srcObject = s;
+      video.play().catch(function () {});
+      $("intro").style.display = "none";
+      $("live").style.display = "flex";
+      updateRing();
+      updateCalibUI();
+      loop();
+    }).catch(function (err) {
+      showErr("カメラを起動できませんでした（" + err.name + "）。ブラウザの設定でこのサイトのカメラを許可してください。httpsでないURL（http://）ではカメラは使えません。");
+    });
+  });
+
+  function showErr(msg) { var e = $("errBox"); e.textContent = msg; e.style.display = "block"; }
+
+  $("quitBtn").addEventListener("click", function () {
+    cancelAnimationFrame(rafId);
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    $("live").style.display = "none";
+    $("intro").style.display = "block";
+  });
+
+  /* ---------- カバー表示に合わせた切り出し ---------- */
+  function drawFrame() {
+    if (!video.videoWidth) return null;
+    var bw = stage.clientWidth, bh = stage.clientHeight;
+    var W = 132, H = Math.max(2, Math.round(W * bh / bw));
+    if (cv.width !== W) cv.width = W;
+    if (cv.height !== H) cv.height = H;
+    var c = cv.getContext("2d", { willReadFrequently: true });
+    var scale = Math.max(bw / video.videoWidth, bh / video.videoHeight);
+    var sw = bw / scale, sh = bh / scale;
+    var sx = (video.videoWidth - sw) / 2, sy = (video.videoHeight - sh) / 2;
+    c.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+    return c.getImageData(0, 0, W, H);
+  }
+
+  /* ---------- ボールの色登録 ---------- */
+  $("calibBtn").addEventListener("click", function () { calibrating = true; updateCalibUI(); });
+  function updateCalibUI() {
+    if (calibrating) { calibmsg.textContent = "画面に写っているボールをタップしてください"; calibmsg.style.display = "block"; }
+    else if (!ballColor) { calibmsg.textContent = "まず「ボールの色を登録」を押してください"; calibmsg.style.display = "block"; }
+    else if (arMode && !anchor) { calibmsg.textContent = "リングを置きたい空中に向けて、画面をタップ"; calibmsg.style.display = "block"; }
+    else calibmsg.style.display = "none";
+    $("calibBtn").textContent = ballColor ? "🎾 色を登録し直す" : "🎾 ボールの色を登録";
+    $("calibBtn").className = "bbtn" + (!ballColor || calibrating ? " hl" : "");
+  }
+
+  stage.addEventListener("pointerdown", function (e) {
+    if (e.target === ring) return;
+    var rect = stage.getBoundingClientRect();
+    var lx = e.clientX - rect.left, ly = e.clientY - rect.top;
+    if (calibrating) {
+      pickColor(lx / rect.width, ly / rect.height);
+    } else if (arMode) {
+      if (placeAnchor(lx, ly)) {
+        ring.classList.add("anchored");
+        target.x = lx / rect.width; target.y = ly / rect.height;
+        updateRing(); updateCalibUI();
+      } else {
+        flashMsg("センサー待機中です。少し端末を動かしてから再度タップ");
+      }
+    }
+  });
+
+  function pickColor(px, py) {
+    var img = drawFrame();
+    if (!img) return;
+    var cx = Math.round(px * (img.width - 1)), cyy = Math.round(py * (img.height - 1));
+    var r = 0, g = 0, b = 0, n = 0;
+    for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
+      var x = Math.min(img.width - 1, Math.max(0, cx + dx));
+      var y = Math.min(img.height - 1, Math.max(0, cyy + dy));
+      var k = (y * img.width + x) * 4;
+      r += img.data[k]; g += img.data[k + 1]; b += img.data[k + 2]; n++;
+    }
+    ballColor = { r: r / n, g: g / n, b: b / n };
+    track.traj = []; track.state = "idle";
+    calibrating = false;
+    updateCalibUI();
+  }
+
+  /* ---------- 追跡ループ ---------- */
+  function loop() {
+    rafId = requestAnimationFrame(loop);
+    updateAR();
+    if (!ballColor) return;
+    var img = drawFrame();
+    if (!img) return;
+    var tSum = ballColor.r + ballColor.g + ballColor.b + 1;
+    var tcr = ballColor.r / tSum, tcg = ballColor.g / tSum;
+    var sumX = 0, sumY = 0, count = 0, d = img.data;
+    for (var y = 0; y < img.height; y++) {
+      for (var x = 0; x < img.width; x++) {
+        var k = (y * img.width + x) * 4;
+        var R = d[k], G = d[k + 1], B = d[k + 2];
+        var s = R + G + B + 1;
+        if (Math.abs(R / s - tcr) < 0.045 && Math.abs(G / s - tcg) < 0.045 &&
+            s > tSum * 0.45 && s < tSum * 1.9) {
+          sumX += x; sumY += y; count++;
+        }
+      }
+    }
+    var now = performance.now();
+    if (count >= 3) {
+      var bx = sumX / count / img.width, by = sumY / count / img.height;
+      balldot.style.display = "block";
+      balldot.style.left = bx * 100 + "%";
+      balldot.style.top = by * 100 + "%";
+      track.lastSeen = now;
+      track.traj.push({ x: bx, y: by, t: now });
+      if (track.traj.length > 30) track.traj.shift();
+      analyze(now);
+    } else if (now - track.lastSeen > 300) {
+      balldot.style.display = "none";
+      if (now - track.lastSeen > 600) { track.traj = []; track.state = "idle"; }
+    }
+  }
+
+  function analyze(now) {
+    var tj = track.traj;
+    if (tj.length < 4 || now < track.cooldownUntil) return;
+    var a = tj[tj.length - 4], b = tj[tj.length - 1];
+    var vy = b.y - a.y; // 負＝上昇
+    if (track.state === "idle") {
+      if (vy < -0.02) { track.state = "rising"; track.minPoint = { x: b.x, y: b.y }; }
+    } else {
+      if (b.y < track.minPoint.y) track.minPoint = { x: b.x, y: b.y };
+      if (vy > 0.015 && b.y > track.minPoint.y + 0.01) {
+        scoreThrow(track.minPoint);
+        track.state = "idle"; track.traj = [];
+        track.cooldownUntil = now + 1500;
+      }
+    }
+  }
+
+  /* ---------- 採点 ---------- */
+  function scoreThrow(apex) {
+    if (arMode && !anchor) return;  // 空間固定モードで的が未設置なら採点しない
+    var w = stage.clientWidth, h = stage.clientHeight;
+    var dx = (apex.x - target.x) * w, dy = (apex.y - target.y) * h;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var rPx = target.r * Math.min(w, h);
+    var score = dist <= rPx ? 10 : Math.max(0, Math.round(10 - (dist - rPx) / rPx * 4));
+    throws.unshift(score);
+    if (throws.length > 30) throws.pop();
+    beep(score);
+
+    var sp = document.createElement("div");
+    sp.className = "splash num" + (score >= 10 ? "" : score >= 6 ? " mid" : " low");
+    sp.textContent = score;
+    sp.style.left = apex.x * 100 + "%";
+    sp.style.top = apex.y * 100 + "%";
+    stage.appendChild(sp);
+    setTimeout(function () { sp.remove(); }, 1400);
+
+    $("scorehud").style.display = "block";
+    $("lastScore").textContent = score;
+    renderStats();
+  }
+
+  function renderStats() {
+    var hist = $("hist");
+    hist.innerHTML = "";
+    throws.forEach(function (s) {
+      var c = document.createElement("div");
+      c.className = "chip num" + (s === 10 ? " p10" : "");
+      c.textContent = s;
+      hist.appendChild(c);
+    });
+    $("stats").style.display = throws.length ? "flex" : "none";
+    $("stN").textContent = throws.length;
+    var sum = throws.reduce(function (a, b) { return a + b; }, 0);
+    $("stAvg").textContent = throws.length ? (sum / throws.length).toFixed(1) : "-";
+    $("stP").textContent = throws.filter(function (s) { return s === 10; }).length;
+  }
+
+  $("resetBtn").addEventListener("click", function () {
+    throws = []; renderStats(); $("scorehud").style.display = "none";
+  });
+  $("soundBtn").addEventListener("click", function () {
+    soundOn = !soundOn;
+    $("soundBtn").textContent = soundOn ? "🔉 音ON" : "🔇 音OFF";
+  });
+
+  /* ---------- 的のドラッグと大きさ ---------- */
+  var dragging = false;
+  function updateRing() {
+    var px = target.r * Math.min(stage.clientWidth, stage.clientHeight) * 2;
+    ring.style.left = target.x * 100 + "%";
+    ring.style.top = target.y * 100 + "%";
+    ring.style.width = px + "px";
+    ring.style.height = px + "px";
+  }
+  ring.addEventListener("pointerdown", function (e) {
+    e.preventDefault(); dragging = true;
+    ring.setPointerCapture && ring.setPointerCapture(e.pointerId);
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    var rect = stage.getBoundingClientRect();
+    var lx = e.clientX - rect.left, ly = e.clientY - rect.top;
+    if (arMode) {
+      // ドラッグで固定先を貼り替える
+      if (placeAnchor(lx, ly)) ring.classList.add("anchored");
+    }
+    target.x = Math.min(0.95, Math.max(0.05, lx / rect.width));
+    target.y = Math.min(0.9, Math.max(0.05, ly / rect.height));
+    updateRing();
+  });
+  window.addEventListener("pointerup", function () { dragging = false; });
+  $("sizeRange").addEventListener("input", function (e) {
+    target.r = +e.target.value; updateRing();
+  });
+  window.addEventListener("resize", updateRing);
+})();
+</script>
+</body>
+</html>
