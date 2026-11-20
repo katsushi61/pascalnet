@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<!--
+  App: iphone-stethoscope
+  Created: 2026-11-20
+  Description: iPhone聴診器。iPhone底面のマイクを胸に当て、心音をフィルタ・増幅してイヤホンで聴く。
+  心音波形の表示、心拍数の目安、録音と保存に対応。医療機器ではありません。
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<title>iPhone聴診器</title>
+<script>const CONFIG = { apiBase: "", basePath: "" };</script>
+<style>
+  :root{
+    --bg:#0f1720; --card:#17212d; --card2:#1e2a38; --line:#2a3a4c;
+    --ink:#e8eef5; --sub:#8fa1b5; --accent:#ff5a6e; --accent2:#4fd1c5;
+    --warn:#f5b642; --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{font-size:16px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    background:var(--bg);color:var(--ink);min-height:100vh;
+    padding:env(safe-area-inset-top) 0 calc(24px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:16px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  header h1{font-size:1.25rem;font-weight:700;letter-spacing:.02em}
+  header .tag{font-size:.7rem;color:var(--sub);border:1px solid var(--line);border-radius:99px;padding:2px 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+
+  /* モニター */
+  .monitor{position:relative;padding:0;overflow:hidden}
+  .monitor canvas{display:block;width:100%;height:200px}
+  .hud{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+  .bpm{display:flex;align-items:baseline;gap:6px}
+  .heart{font-size:1.4rem;color:var(--accent);transition:transform .08s ease-out;display:inline-block}
+  .heart.beat{transform:scale(1.35)}
+  .bpm .num{font-size:2.2rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+  .bpm .unit{font-size:.8rem;color:var(--sub)}
+  .status{font-size:.75rem;color:var(--sub);text-align:right;line-height:1.5}
+  .status .rec{color:var(--accent);font-weight:700}
+  .level{height:6px;background:var(--card2)}
+  .level i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent2),var(--warn),var(--accent));transition:width .05s linear}
+
+  /* ボタン */
+  .main-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  button{font:inherit;color:inherit;border:none;cursor:pointer}
+  .btn{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:16px 10px;font-size:1.05rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn:active{transform:scale(.98)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary.on{background:#3a4a5c;border-color:#3a4a5c}
+  .btn.rec.on{background:#7a1f2b;border-color:var(--accent)}
+  .btn:disabled{opacity:.4}
+  .dot{width:12px;height:12px;border-radius:50%;background:var(--accent)}
+  .btn.rec.on .dot{animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.2}}
+
+  /* 設定 */
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0}
+  .row + .row{border-top:1px solid var(--line)}
+  .row label{font-size:.92rem}
+  .row small{display:block;color:var(--sub);font-size:.72rem;margin-top:2px}
+  .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%}
+  .seg button{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 4px;font-size:.85rem;line-height:1.25}
+  .seg button span{display:block;font-size:.65rem;color:var(--sub);margin-top:2px}
+  .seg button.sel{background:rgba(255,90,110,.16);border-color:var(--accent);color:#fff}
+  input[type=range]{flex:1;max-width:60%;accent-color:var(--accent);height:28px}
+  .val{min-width:3.2em;text-align:right;font-variant-numeric:tabular-nums;color:var(--sub);font-size:.85rem}
+  .switch{position:relative;width:52px;height:30px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .switch span{position:absolute;inset:0;background:#3a4a5c;border-radius:99px;transition:.2s}
+  .switch span::after{content:"";position:absolute;left:3px;top:3px;width:24px;height:24px;background:#fff;border-radius:50%;transition:.2s}
+  .switch input:checked + span{background:var(--accent2)}
+  .switch input:checked + span::after{transform:translateX(22px)}
+
+  h2{font-size:.85rem;color:var(--sub);font-weight:600;margin-bottom:8px;letter-spacing:.04em}
+
+  /* 録音リスト */
+  .recs{list-style:none}
+  .recs li{padding:10px 0;border-top:1px solid var(--line)}
+  .recs li:first-child{border-top:none}
+  .recs .meta{display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:6px;gap:8px}
+  .recs .meta a{color:var(--accent2);text-decoration:none;font-weight:600}
+  .recs .meta button{background:none;color:var(--sub);font-size:.8rem}
+  .recs audio{width:100%;height:36px}
+  .empty{color:var(--sub);font-size:.85rem}
+
+  /* 使い方 */
+  ol.howto{padding-left:1.3em;font-size:.88rem;line-height:1.7}
+  ol.howto b{color:#fff}
+  .note{font-size:.75rem;color:var(--sub);line-height:1.6;margin-top:8px}
+  .warn{background:rgba(245,182,66,.1);border:1px solid rgba(245,182,66,.4);color:#f8d58f;border-radius:12px;padding:10px 12px;font-size:.8rem;line-height:1.6;margin-bottom:12px}
+  .err{background:rgba(255,90,110,.12);border:1px solid var(--accent);color:#ffc2ca;border-radius:12px;padding:10px 12px;font-size:.85rem;line-height:1.6;margin-bottom:12px;display:none}
+  .disclaimer{text-align:center;font-size:.72rem;color:var(--sub);line-height:1.6;margin-top:8px}
+
+  @media (max-width:600px){
+    .wrap{padding:12px}
+    .monitor canvas{height:180px}
+    .bpm .num{font-size:2rem}
+    .seg button{font-size:.8rem;padding:9px 2px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🩺 iPhone聴診器</h1>
+    <span class="tag">医療機器ではありません</span>
+  </header>
+
+  <div class="err" id="err"></div>
+
+  <div class="card monitor">
+    <canvas id="wave"></canvas>
+    <div class="hud">
+      <div class="bpm"><span class="heart" id="heart">♥</span><span class="num" id="bpm">--</span><span class="unit">bpm(目安)</span></div>
+      <div class="status" id="status">停止中</div>
+    </div>
+    <div class="level"><i id="level"></i></div>
+  </div>
+
+  <div class="main-btns">
+    <button class="btn primary" id="startBtn">▶ 聴診スタート</button>
+    <button class="btn rec" id="recBtn" disabled><span class="dot"></span><span id="recLabel">録音</span></button>
+  </div>
+
+  <div class="card">
+    <h2>フィルター</h2>
+    <div class="seg" id="modes">
+      <button data-mode="heart">心音<span>25–200Hz</span></button>
+      <button data-mode="murmur">心雑音<span>25–600Hz</span></button>
+      <button data-mode="lung">呼吸音<span>100–1000Hz</span></button>
+      <button data-mode="raw">そのまま<span>20Hz–</span></button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>音量(増幅)</label>
+      <input type="range" id="gain" min="1" max="60" step="1">
+      <span class="val" id="gainVal">×10</span>
+    </div>
+    <div class="row">
+      <label>イヤホンで聴く<small>イヤホン未接続だとハウリングします</small></label>
+      <label class="switch"><input type="checkbox" id="monitor"><span></span></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>録音</h2>
+    <ul class="recs" id="recs"><li class="empty">まだ録音はありません。録音はこの画面を閉じると消えるので、残したいものは「保存」してください。</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>使い方</h2>
+    <ol class="howto">
+      <li><b>有線イヤホン</b>を着ける(Bluetoothは遅延が出やすい)。静かな場所で。</li>
+      <li>ケースを外し、<b>iPhoneの下端(マイク穴)</b>を胸の肌に直接、軽く押し当てる。</li>
+      <li>当てる場所の目安は<b>左乳首のやや下・内側</b>(心尖部)や胸骨の左右。</li>
+      <li>「聴診スタート」を押してマイクを許可。音が小さければ音量を上げる。</li>
+      <li>息を軽く止めると心音が聞き取りやすくなります。</li>
+    </ol>
+    <p class="note">こすれる音が入るので、当てたらiPhoneを動かさないのがコツです。心拍数は波形の周期から求めた目安で、雑音が多いと外れます。</p>
+  </div>
+
+  <p class="disclaimer">本アプリは医療機器ではなく、診断・治療には使用できません。<br>体調に不安がある場合は医療機関を受診してください。</p>
+</div>
+
+<script>
+(() => {
+  const APP = "iphone-stethoscope";
+
+  // ---- 永続化(設定のみ) ----
+  function saveState(data){ try{ localStorage.setItem(APP + ":settings", JSON.stringify(data)); }catch(e){} }
+  function loadState(){ try{ return JSON.parse(localStorage.getItem(APP + ":settings")) || {}; }catch(e){ return {}; } }
+
+  const MODES = {
+    heart:  { hp: 25,  lp: 200 },
+    murmur: { hp: 25,  lp: 600 },
+    lung:   { hp: 100, lp: 1000 },
+    raw:    { hp: 20,  lp: 8000 }
+  };
+  const saved = loadState();
+  const state = {
+    mode: MODES[saved.mode] ? saved.mode : "heart",
+    gain: Number(saved.gain) || 10,
+    monitor: saved.monitor !== false
+  };
+
+  const $ = id => document.getElementById(id);
+  const startBtn = $("startBtn"), recBtn = $("recBtn"), recLabel = $("recLabel");
+  const gainEl = $("gain"), gainVal = $("gainVal"), monitorEl = $("monitor");
+  const statusEl = $("status"), bpmEl = $("bpm"), heartEl = $("heart"), levelEl = $("level");
+  const canvas = $("wave"), g2 = canvas.getContext("2d");
+  const errEl = $("err");
+
+  // ---- UI初期化 ----
+  gainEl.value = state.gain; gainVal.textContent = "×" + state.gain;
+  monitorEl.checked = state.monitor;
+  function renderModes(){
+    document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("sel", b.dataset.mode === state.mode));
+  }
+  renderModes();
+  const persist = () => saveState({ mode: state.mode, gain: state.gain, monitor: state.monitor });
+
+  // ---- オーディオ ----
+  let ctx = null, stream = null, src = null, hp1, hp2, lp1, lp2, amp, limiter, monitorGain, analyser, recDest;
+  let running = false, raf = 0, wakeLock = null;
+  let buf = null, lastTime = 0, pending = [], hop = 480;
+
+  // エンベロープ(100点/秒)
+  const ENV_RATE = 100, VIEW_SEC = 6, HR_SEC = 6;
+  const envMin = [], envMax = [], envRms = [];
+  const MAXPTS = ENV_RATE * 10;
+  let lastHrAt = 0, hrHist = [], lastBeat = 0;
+
+  function showErr(msg){ errEl.textContent = msg; errEl.style.display = msg ? "block" : "none"; }
+
+  function applyFilter(){
+    if(!ctx) return;
+    const m = MODES[state.mode], t = ctx.currentTime;
+    const nyq = ctx.sampleRate / 2 - 100;
+    [hp1, hp2].forEach(f => f.frequency.setTargetAtTime(m.hp, t, 0.02));
+    [lp1, lp2].forEach(f => f.frequency.setTargetAtTime(Math.min(m.lp, nyq), t, 0.02));
+  }
+  function applyGain(){ if(amp) amp.gain.setTargetAtTime(state.gain, ctx.currentTime, 0.05); }
+  function applyMonitor(){ if(monitorGain) monitorGain.gain.setTargetAtTime(state.monitor ? 1 : 0, ctx.currentTime, 0.05); }
+
+  async function start(){
+    showErr("");
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showErr("このブラウザではマイクが使えません。iPhoneのSafariで開いてください(https接続が必要です)。");
+      return;
+    }
+    try{
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = ctx || new AC();
+      if(ctx.state === "suspended") await ctx.resume();
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 }
+      });
+    }catch(e){
+      showErr("マイクを使えませんでした。設定 → Safari → マイク で許可しているか確認してください。(" + (e.name || e) + ")");
+      return;
+    }
+
+    src = ctx.createMediaStreamSource(stream);
+    const mk = (type) => { const f = ctx.createBiquadFilter(); f.type = type; f.Q.value = 0.707; return f; };
+    hp1 = mk("highpass"); hp2 = mk("highpass"); lp1 = mk("lowpass"); lp2 = mk("lowpass");
+    amp = ctx.createGain();
+    limiter = ctx.createDynamicsCompressor(); // 耳を守るリミッター
+    limiter.threshold.value = -10; limiter.knee.value = 4; limiter.ratio.value = 20;
+    limiter.attack.value = 0.003; limiter.release.value = 0.15;
+    monitorGain = ctx.createGain();
+    analyser = ctx.createAnalyser(); analyser.fftSize = 16384; analyser.smoothingTimeConstant = 0;
+    recDest = ctx.createMediaStreamDestination();
+
+    src.connect(hp1); hp1.connect(hp2); hp2.connect(lp1); lp1.connect(lp2); lp2.connect(amp);
+    amp.connect(limiter);
+    limiter.connect(analyser); limiter.connect(recDest); limiter.connect(monitorGain);
+    monitorGain.connect(ctx.destination);
+
+    applyFilter(); amp.gain.value = state.gain; monitorGain.gain.value = state.monitor ? 1 : 0;
+
+    buf = new Float32Array(analyser.fftSize);
+    hop = Math.round(ctx.sampleRate / ENV_RATE);
+    pending = []; lastTime = ctx.currentTime;
+    envMin.length = envMax.length = envRms.length = 0; hrHist = []; bpmEl.textContent = "--";
+
+    running = true;
+    startBtn.textContent = "■ 停止"; startBtn.classList.add("on");
+    recBtn.disabled = false;
+    try{ if("wakeLock" in navigator){ wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); } }catch(e){}
+    loop();
+  }
+
+  function stop(){
+    if(recorder && recorder.state === "recording") recorder.stop();
+    running = false; cancelAnimationFrame(raf);
+    if(stream) stream.getTracks().forEach(t => t.stop());
+    try{ src && src.disconnect(); monitorGain && monitorGain.disconnect(); }catch(e){}
+    stream = null;
+    startBtn.textContent = "▶ 聴診スタート"; startBtn.classList.remove("on");
+    recBtn.disabled = true;
+    statusEl.textContent = "停止中"; levelEl.style.width = "0";
+    if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
+  }
+
+  // ---- 解析ループ ----
+  function loop(){
+    if(!running) return;
+    raf = requestAnimationFrame(loop);
+    const now = ctx.currentTime;
+    let n = Math.round((now - lastTime) * ctx.sampleRate);
+    lastTime = now;
+    if(n <= 0) { draw(); return; }
+    n = Math.min(n, buf.length);
+    analyser.getFloatTimeDomainData(buf);
+    for(let i = buf.length - n; i < buf.length; i++) pending.push(buf[i]);
+    while(pending.length >= hop){
+      let mn = 1, mx = -1, ss = 0;
+      for(let i = 0; i < hop; i++){ const v = pending[i]; if(v < mn) mn = v; if(v > mx) mx = v; ss += v*v; }
+      pending.splice(0, hop);
+      envMin.push(mn); envMax.push(mx); envRms.push(Math.sqrt(ss / hop));
+      if(envRms.length > MAXPTS){ envMin.shift(); envMax.shift(); envRms.shift(); }
+      detectBeat();
+    }
+    const r = envRms[envRms.length - 1] || 0;
+    levelEl.style.width = Math.min(100, r * 400) + "%";
+    if(now - lastHrAt > 0.5){ lastHrAt = now; estimateHR(); }
+    updateStatus();
+    draw();
+  }
+
+  // 直近のピーク検出(ハートの点滅用)
+  function detectBeat(){
+    const L = envRms.length, W = ENV_RATE * 3;
+    if(L < W) return;
+    let s = 0, s2 = 0;
+    for(let i = L - W; i < L; i++){ s += envRms[i]; s2 += envRms[i]*envRms[i]; }
+    const mean = s / W, sd = Math.sqrt(Math.max(0, s2 / W - mean*mean));
+    const v = envRms[L-1], prev = envRms[L-2];
+    const t = performance.now();
+    if(v > mean + 1.8*sd && prev <= mean + 1.8*sd && v > 0.004 && t - lastBeat > 250){
+      lastBeat = t;
+      heartEl.classList.add("beat");
+      setTimeout(() => heartEl.classList.remove("beat"), 120);
+    }
+  }
+
+  // 自己相関で周期を推定(S1/S2の二重カウントを避ける)
+  function estimateHR(){
+    const N = ENV_RATE * HR_SEC;
+    if(envRms.length < N) { bpmEl.textContent = "--"; return; }
+    const x = envRms.slice(-N);
+    // 平滑化(50ms)
+    const y = new Array(N).fill(0), k = 5;
+    for(let i = 0; i < N; i++){ let s = 0, c = 0; for(let j = Math.max(0,i-k); j <= Math.min(N-1,i+k); j++){ s += x[j]; c++; } y[i] = s / c; }
+    const mean = y.reduce((a,b)=>a+b,0) / N;
+    for(let i = 0; i < N; i++) y[i] -= mean;
+    let r0 = 0; for(let i = 0; i < N; i++) r0 += y[i]*y[i];
+    if(r0 < 1e-7 || mean < 0.002){ pushHR(null); return; }
+    const minLag = Math.round(ENV_RATE * 60/180), maxLag = Math.round(ENV_RATE * 60/40);
+    const r = [];
+    for(let lag = 0; lag <= maxLag + 1; lag++){
+      let s = 0; for(let i = 0; i + lag < N; i++) s += y[i]*y[i+lag];
+      r[lag] = s / r0 * N / (N - lag);
+    }
+    let best = -1, bestLag = 0;
+    for(let lag = minLag; lag <= maxLag; lag++) if(r[lag] > best){ best = r[lag]; bestLag = lag; }
+    if(best < 0.25){ pushHR(null); return; }
+    // 最大値の8割以上ある最初の極大(=基本周期)を採用
+    for(let lag = minLag; lag <= maxLag; lag++){
+      if(r[lag] >= best*0.8 && r[lag] >= r[lag-1] && r[lag] >= r[lag+1]){ bestLag = lag; break; }
+    }
+    // 放物線補間
+    const a = r[bestLag-1], b = r[bestLag], c = r[bestLag+1];
+    const d = (a - 2*b + c) !== 0 ? 0.5*(a - c)/(a - 2*b + c) : 0;
+    pushHR(60 * ENV_RATE / (bestLag + d));
+  }
+  function pushHR(v){
+    if(v == null){ hrHist = hrHist.slice(-2); if(!hrHist.length) bpmEl.textContent = "--"; return; }
+    hrHist.push(v); if(hrHist.length > 5) hrHist.shift();
+    const s = [...hrHist].sort((p,q)=>p-q);
+    bpmEl.textContent = Math.round(s[Math.floor(s.length/2)]);
+  }
+
+  function updateStatus(){
+    const m = { heart:"心音", murmur:"心雑音", lung:"呼吸音", raw:"そのまま" }[state.mode];
+    let html = m + "フィルター<br>" + (state.monitor ? "🎧 再生中" : "🔇 再生オフ");
+    if(recorder && recorder.state === "recording"){
+      const s = Math.floor((performance.now() - recStart)/1000);
+      html += '<br><span class="rec">● REC ' + Math.floor(s/60) + ":" + String(s%60).padStart(2,"0") + "</span>";
+    }
+    statusEl.innerHTML = html;
+  }
+
+  // ---- 波形描画 ----
+  function resize(){
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+    g2.setTransform(dpr,0,0,dpr,0,0);
+    draw();
+  }
+  function draw(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    g2.clearRect(0,0,w,h);
+    // グリッド(1秒ごと)
+    g2.strokeStyle = "rgba(143,161,181,.12)"; g2.lineWidth = 1;
+    for(let s = 1; s < VIEW_SEC; s++){ const x = Math.round(w * s / VIEW_SEC) + .5; g2.beginPath(); g2.moveTo(x, 0); g2.lineTo(x, h); g2.stroke(); }
+    const mid = h * 0.64;
+    g2.beginPath(); g2.moveTo(0, mid+.5); g2.lineTo(w, mid+.5); g2.stroke();
+
+    const N = ENV_RATE * VIEW_SEC, L = envMax.length;
+    if(!L){
+      g2.fillStyle = "rgba(143,161,181,.6)"; g2.font = "13px -apple-system,sans-serif"; g2.textAlign = "center";
+      g2.fillText(running ? "音を待っています…" : "スタートを押すと心音の波形が流れます", w/2, mid + 30);
+      return;
+    }
+    // 表示スケールは直近の最大振幅に自動追従
+    let peak = 0.02;
+    for(let i = Math.max(0, L-N); i < L; i++) peak = Math.max(peak, envMax[i], -envMin[i]);
+    const scale = (h * 0.3) / peak;
+    const startIdx = L - N;
+    g2.strokeStyle = "#ff5a6e"; g2.lineWidth = Math.max(1, w / N);
+    g2.beginPath();
+    for(let i = Math.max(0, startIdx); i < L; i++){
+      const x = (i - startIdx) / N * w;
+      g2.moveTo(x, mid - envMax[i]*scale);
+      g2.lineTo(x, mid - envMin[i]*scale + 0.5);
+    }
+    g2.stroke();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---- 録音 ----
+  let recorder = null, chunks = [], recStart = 0, recCount = 0;
+  function pickMime(){
+    const c = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
+    if(!window.MediaRecorder) return null;
+    for(const m of c) if(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+    return "";
+  }
+  function toggleRec(){
+    if(!running) return;
+    if(recorder && recorder.state === "recording"){ recorder.stop(); return; }
+    const mime = pickMime();
+    if(mime === null){ showErr("このブラウザは録音に対応していません。"); return; }
+    try{
+      recorder = mime ? new MediaRecorder(recDest.stream, { mimeType: mime }) : new MediaRecorder(recDest.stream);
+    }catch(e){ showErr("録音を開始できませんでした。(" + (e.name || e) + ")"); return; }
+    chunks = [];
+    recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      recBtn.classList.remove("on"); recLabel.textContent = "録音";
+      const type = recorder.mimeType || mime || "audio/mp4";
+      const blob = new Blob(chunks, { type });
+      const dur = (performance.now() - recStart) / 1000;
+      addRec(blob, type, dur);
+    };
+    recorder.start(1000);
+    recStart = performance.now();
+    recBtn.classList.add("on"); recLabel.textContent = "録音停止";
+  }
+  function stamp(d){
+    const p = n => String(n).padStart(2,"0");
+    return d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+  function addRec(blob, type, dur){
+    const list = $("recs");
+    const empty = list.querySelector(".empty"); if(empty) empty.remove();
+    recCount++;
+    const url = URL.createObjectURL(blob);
+    const ext = type.includes("webm") ? "webm" : type.includes("ogg") ? "ogg" : "m4a";
+    const modeName = { heart:"心音", murmur:"心雑音", lung:"呼吸音", raw:"原音" }[state.mode];
+    const li = document.createElement("li");
+    li.innerHTML =
+      '<div class="meta"><span>#' + recCount + " " + modeName + " ・ " + dur.toFixed(1) + "秒" + (bpmEl.textContent !== "--" ? " ・ 約" + bpmEl.textContent + "bpm" : "") + "</span>" +
+      '<span><a download="stethoscope-' + stamp(new Date()) + "." + ext + '" href="' + url + '">保存</a> &nbsp; <button type="button">削除</button></span></div>' +
+      '<audio controls preload="metadata" src="' + url + '"></audio>';
+    li.querySelector("button").onclick = () => { URL.revokeObjectURL(url); li.remove(); };
+    list.prepend(li);
+  }
+
+  // ---- イベント ----
+  startBtn.onclick = () => running ? stop() : start();
+  recBtn.onclick = toggleRec;
+  document.querySelectorAll("#modes button").forEach(b => b.onclick = () => {
+    state.mode = b.dataset.mode; renderModes(); applyFilter(); persist();
+  });
+  gainEl.oninput = () => { state.gain = Number(gainEl.value); gainVal.textContent = "×" + state.gain; applyGain(); persist(); };
+  monitorEl.onchange = () => { state.monitor = monitorEl.checked; applyMonitor(); persist(); };
+  document.addEventListener("visibilitychange", async () => {
+    if(document.visibilityState === "visible" && running){
+      if(ctx.state !== "running") try{ await ctx.resume(); }catch(e){}
+      try{ if("wakeLock" in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){}
+    }
+  });
+})();
+</script>
+</body>
+</html>
